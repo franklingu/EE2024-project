@@ -27,7 +27,7 @@ int main(void)
 
     //  C & Floating Point version
     printf("C & Floating point version:\n",x);
-    while (1){
+    while (1) {
     	fp = 2*a*x + b;
 
     	xprev = x;
