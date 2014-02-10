@@ -18,17 +18,16 @@ int main(void)
     printf("Initial value of x (press [Enter] after keying in): "); // try x0 = -12.35
     scanf("%f", &x);
 
-//  ARM ASM & Integer version
+    //  ARM ASM & Integer version
     printf("ARM ASM & Integer version:\n");
     xsoli = optimize(x,a,b,&cnt);
     xsol = xsoli;
     printf("xsol : %f \n",((float)xsol)/100);
     printf("number of iterations: %d\n", cnt);
 
-//  C & Floating Point version
-  	printf("C & Floating point version:\n",x);
-    while (1)
-    {
+    //  C & Floating Point version
+    printf("C & Floating point version:\n",x);
+    while (1){
     	fp = 2*a*x + b;
 
     	xprev = x;
@@ -40,10 +39,12 @@ int main(void)
     }
 
     // Enter an infinite loop, just incrementing a counter
-	// This is for convenience to allow registers, variables and memory locations to be inspected at the end
-	volatile static int loop = 0;
-	while (1) {
-		loop++;
-	}
+    // This is for convenience to allow registers, variables and memory locations to be inspected at the end
+    volatile static int loop = 0;
+    while (1) {
+        loop++;
+    }
+    
+    return 0;
 }
 
