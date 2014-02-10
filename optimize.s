@@ -4,8 +4,11 @@
  	.align 2
  	.global	optimize
  	.thumb_func
-@  EE2024 Assignment 1 skeleton
-@  CK Tham, ECE, NUS, 2014
+@  EE2024 Assignment 1 with Bonus
+@  Lab Group B1
+@  XIE KAI (A0102016)
+@  GU JUNCHAO (A0105750)
+
 optimize:
 @ at the beginning, R0 = x as Integer, R1 = a, R2 = b, R3 = addr of cnt (counter)
 @ Init
