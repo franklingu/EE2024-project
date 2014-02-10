@@ -20,6 +20,7 @@ int main(void)
 
     //  ARM ASM & Integer version
     printf("ARM ASM & Integer version:\n");
+    // suggestion: (int)(x*100) as if we do the casting in C, precision will be better preserved
     xsoli = optimize(x,a,b,&cnt);
     xsol = xsoli;
     printf("xsol : %f \n",((float)xsol)/100);
