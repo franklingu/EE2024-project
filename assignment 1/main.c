@@ -22,9 +22,7 @@ int main(void)
     printf("ARM ASM & Integer version:\n");
 
     const int FACTOR = 100;
-    // maybe it is just better if we do a casting to int for (int)(x*100) first. more reasonable
-    xsoli = optimize(x * FACTOR,a,b * FACTOR,&cnt);
-    // this is casting the result to float, then we do not need casting next line
+    xsoli = optimize((int)(x * FACTOR),a,(b * FACTOR),&cnt);
     xsol = xsoli;
     printf("xsol : %f \n",(float)xsol/100);
     printf("number of iterations: %d\n", cnt);

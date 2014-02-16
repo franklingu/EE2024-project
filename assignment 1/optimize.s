@@ -43,4 +43,4 @@ DONE:
 @ Preparing to exit, eg STR, restore registers
 	STR R4, [R3]    @ store R4 back to R3's address, which is *cnt = R4
 	POP {R4-R6}     @ restore registers R4 ~ R7
-	BX LR           @ return R0, AKA x
+	BX LR           @ return R0, AKA xsoli
