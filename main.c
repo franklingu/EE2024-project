@@ -30,7 +30,7 @@ typedef enum {
 } MachineMode;
 
 static uint32_t msTicks = 0;  //global variable for timing
-static MachineMode currentMode = Calibration;  //mode code definition
+MachineMode currentMode = Calibration;
 
 static void ssp_init(void)
 {
@@ -88,8 +88,7 @@ static void i2c_init(void)
     I2C_Cmd(LPC_I2C2, ENABLE);
 }
 
-static void resetBtn_init(void) {
-    // Initialize button
+void resetBtn_init(void) {
     PINSEL_CFG_Type PinCfg;
     PinCfg.Portnum = 0;
     PinCfg.Pinnum = 4;
@@ -97,15 +96,32 @@ static void resetBtn_init(void) {
     PinCfg.OpenDrain = 0;
     PinCfg.Pinmode = 0;
     PINSEL_ConfigPin(&PinCfg);
-    // Set up GPIO
     GPIO_SetDir(0, (1<<4), 0);
 }
 
-int resetBtn_read(void) {
-    int state;
+void calibratedBtn_init(void) {
+	PINSEL_CFG_Type PinCfg;
+    PinCfg.Portnum = 1;
+    PinCfg.Pinnum = 31;
+    PinCfg.Funcnum = 0;
+    PinCfg.OpenDrain = 0;
+    PinCfg.Pinmode = 0;
+    PINSEL_ConfigPin(&PinCfg);
+    GPIO_SetDir(1, (1<<31), 0);
+}
 
-    state = GPIO_ReadValue(0);  // Read current state of GPIO P0_0..31, which includes P0_4
+int resetBtn_read(void) {
+	uint32_t state;
+
+    state = GPIO_ReadValue(0);
     return state & (1 << 4);
+}
+
+int calibratedBtn_read(void) {
+	uint32_t state;
+
+	state = GPIO_ReadValue(1);
+	return state & (1 << 31);
 }
 
 void SysTick_Handler(void) {
@@ -116,13 +132,77 @@ static uint32_t getTicks(void) {
     return msTicks;
 }
 
+int8_t x, y, z;
+
+void doCalibration(){
+	oled_clearScreen(OLED_COLOR_BLACK);
+	while(calibratedBtn_read() != 0){
+		char oledOutput[256];
+		acc_read(&x, &y, &z);
+		sprintf(oledOutput, "Acc: %d %d %d", x, y, z);
+		oled_putString(10, 10, (uint8_t *) "CALIBRATION", OLED_COLOR_WHITE, OLED_COLOR_BLACK);
+		oled_putString(10, 20, (uint8_t *) oledOutput, OLED_COLOR_WHITE, OLED_COLOR_BLACK);
+	}
+	currentMode = StandBy;
+}
+
+
+uint8_t numberToCharUint(int number) {
+	return (uint8_t)(number + 48);
+}
+
+void doStandByMode() {
+	oled_clearScreen(OLED_COLOR_BLACK);
+	int standByTiming = 5;
+	int prevCountingTicks = getTicks();
+
+	oled_putString(0, 0, (uint8_t *)"STANDBY", OLED_COLOR_WHITE, OLED_COLOR_BLACK);
+	led7seg_setChar(numberToCharUint(standByTiming), FALSE);
+	while (1) {
+	    if (resetBtn_read() == 0) {
+	        currentMode = Calibration;
+	        break;
+	    }
+
+	    // light sensor interrupt code
+
+	    if (standByTiming > 0 && getTicks() - prevCountingTicks > 1000) {
+	    	standByTiming--;
+	    	led7seg_setChar(numberToCharUint(standByTiming), FALSE);
+	    	prevCountingTicks = getTicks();
+	    }
+	    if (standByTiming == 0) {
+	    	uint32_t luminance = light_read();
+	    	float temperature = temp_read() / 10.0;
+	    	uint8_t risky = (luminance >= 800);
+	    	uint8_t hot = (temperature >= 26);
+
+	    	// if conditions met, go to the active mode
+
+	    	if (risky) {
+	    		oled_putString(0, 10, (uint8_t *)"RISKY", OLED_COLOR_WHITE, OLED_COLOR_BLACK);
+	    	} else {
+	    		oled_putString(0, 10, (uint8_t *)"SAFE ", OLED_COLOR_WHITE, OLED_COLOR_BLACK);
+	    	}
+	    	if (hot) {
+	    		oled_putString(0, 20, (uint8_t *)"HOT   ", OLED_COLOR_WHITE, OLED_COLOR_BLACK);
+	    	} else {
+	    		oled_putString(0, 20, (uint8_t *)"NORMAL", OLED_COLOR_WHITE, OLED_COLOR_BLACK);
+	    	}
+	    }
+	}
+}
+
 void all_init() {
     i2c_init();
     ssp_init();
     resetBtn_init();
+    calibratedBtn_init();
 
     pca9532_init();
     led7seg_init();
+    acc_init();
+    oled_init();
     rgb_init();
 
     GPIO_ClearValue(0, 1<<27); //LM4811-clk
@@ -139,20 +219,17 @@ void all_init() {
 }
 
 int main (void) {
+	all_init();
     while (1) {
-        while (currentMode == Calibration) {
-            // to do for calibration
+        if (currentMode == Calibration) {
+        	doCalibration();
         }
 
-        while (currentMode == StandBy) {
-            if (resetBtn_read() == 0) {
-                currentMode = Calibration;
-                break;
-            }
-            // to do for stand by
+        if (currentMode == StandBy) {
+            doStandByMode();
         }
 
-        while (currentMode == Active) {
+        if (currentMode == Active) {
             if (resetBtn_read() == 0) {
                 currentMode = Calibration;
                 break;
@@ -161,3 +238,4 @@ int main (void) {
         }
     }
 }
+
