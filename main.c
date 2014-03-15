@@ -233,6 +233,14 @@ void all_init() {
     light_setLoThreshold(50);
     light_setRange(LIGHT_RANGE_4000);
     light_setIrqInCycles(LIGHT_CYCLE_8);
+    //light interrupt
+    PINSEL_CFG_Type PinCfg;
+    PinCfg.Funcnum = 0;
+    PinCfg.OpenDrain = 0;
+    PinCfg.Pinmode = 0;
+   	PinCfg.Portnum = 2;
+ 	PinCfg.Pinnum = 5;
+    PINSEL_ConfigPin(&PinCfg);
     GPIO_SetDir(2,1<<5,0);
     luminance = light_read();
     light_clearIrqStatus();
