@@ -175,11 +175,8 @@ void doStandByMode() {
     oled_putString(0, 0, (uint8_t *)"STANDBY", OLED_COLOR_WHITE, OLED_COLOR_BLACK);
     led7seg_setChar(numberToCharUint(standByTiming), FALSE);
     while (currentMode == StandBy) {
-        // this part of code will disable oled!!! rgb_setLeds(RGB_RED);
-        //rgb_setLeds(RGB_GREEN);
-        //rgb_setLeds(RGB_RED);
-
         if (standByTiming > 0 && getTicks() - prevCountingTicks > 1000) {
+            // set up connection to PC
             standByTiming--;
             led7seg_setChar(numberToCharUint(standByTiming), FALSE);
             prevCountingTicks = getTicks();
@@ -208,7 +205,7 @@ void doStandByMode() {
 void doActiveMode() {
     oled_clearScreen(OLED_COLOR_BLACK);
 
-    while (1) {
+    while (currentMode == Active) {
         // to do for active
     }
 }
@@ -234,16 +231,18 @@ void all_init() {
     temp_init(&getTicks);
     SysTick_Config(SystemCoreClock / 1000);
 
+    // not working !
     //light interrupt
-        PINSEL_CFG_Type PinCfg;
-        PinCfg.Funcnum = 0;
-        PinCfg.OpenDrain = 0;
-        PinCfg.Pinmode = 0;
-        PinCfg.Portnum = 2;
-        PinCfg.Pinnum = 5;
-        PINSEL_ConfigPin(&PinCfg);
-        GPIO_SetDir(2, (1 << 5), 0);
-    //light_init();
+    PINSEL_CFG_Type PinCfg;
+    PinCfg.Funcnum = 0;
+    PinCfg.OpenDrain = 0;
+    PinCfg.Pinmode = 0;
+    PinCfg.Portnum = 2;
+    PinCfg.Pinnum = 5;
+    PINSEL_ConfigPin(&PinCfg);
+    GPIO_SetDir(2, (1 << 5), 0);
+    light_init();
+
     light_enable();
     light_setRange(LIGHT_RANGE_4000);
     light_setHiThreshold(150);
@@ -253,12 +252,14 @@ void all_init() {
 
     luminance = light_read();
 
-    // Enable GPIO Interrupt P2.5 for light sensor
+    // not working !
+    // Enable GPIO Interrupt P2. for light sensor
     LPC_GPIOINT->IO2IntEnF |= 1 << 5;
-    // Enable GPIO Interrupt P2.5 for SW3 (reset button)
+    // Enable GPIO Interrupt P0.4 for SW3 (reset button)
     LPC_GPIOINT->IO0IntEnF |= 1 << 4;
-    // Enable GPIO Interrupt P2.5 for SW4 (calibrated button)
-    //LPC_GPIOINT->IO1IntEnF |= 1 << 31;
+    // not working !
+    // Enable GPIO Interrupt P2.6 for SW4 (calibrated button)
+    LPC_GPIOINT->IO2IntEnF |= 1 << 6;
     NVIC_EnableIRQ(EINT3_IRQn);
 
     acc_read(&x, &y, &z);
@@ -269,18 +270,18 @@ void all_init() {
 
 void EINT3_IRQHandler(void){
     // SW3
-    if((LPC_GPIOINT->IO0IntStatF >> 4)& 0x1){
+    if ((LPC_GPIOINT->IO0IntStatF >> 4) & 0x1){
         LPC_GPIOINT->IO0IntClr |= 1 << 4;
         currentMode = Calibration;
     }
-    /*
-    if((LPC_GPIOINT->IO1IntStatF >> 31)& 0x1){
-        LPC_GPIOINT->IO1IntClr |= 1 << 31;
-        currentMode = Calibration;
+    // SW4
+    // not working
+    if ((LPC_GPIOINT->IO2IntStatF >> 6) & 0x1){
+        LPC_GPIOINT->IO2IntClr |= 1 << 6;
+        currentMode = StandBy;
     }
-    */
     // light
-    if((LPC_GPIOINT->IO2IntStatF >> 5)& 0x1){
+    if ((LPC_GPIOINT->IO2IntStatF >> 5)& 0x1){
         LPC_GPIOINT->IO2IntClr |= 1 << 5;
         light_clearIrqStatus();
         luminance = light_read();
