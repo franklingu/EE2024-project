@@ -139,7 +139,7 @@ void doCalibration(){
     led7seg_setChar('0', FALSE);
     oled_clearScreen(OLED_COLOR_BLACK);
     oled_putString(0, 0, (uint8_t *) "CALIBRATION", OLED_COLOR_WHITE, OLED_COLOR_BLACK);
-    while(calibratedBtn_read() != 0){
+    while(currentMode == Calibration){
         char oledOutput1[15];
         char oledOutput2[15];
         char oledOutput3[15];
@@ -154,13 +154,14 @@ void doCalibration(){
         oled_putString(0, 20, (uint8_t *) oledOutput2, OLED_COLOR_WHITE, OLED_COLOR_BLACK);
         oled_putString(0, 30, (uint8_t *) oledOutput3, OLED_COLOR_WHITE, OLED_COLOR_BLACK);
     }
-    currentMode = StandBy;
 }
 
 
 uint8_t numberToCharUint(int number) {
     return (uint8_t)(number + 48);
 }
+
+uint32_t luminance;
 
 void doStandByMode() {
     oled_clearScreen(OLED_COLOR_BLACK);
@@ -170,11 +171,6 @@ void doStandByMode() {
     oled_putString(0, 0, (uint8_t *)"STANDBY", OLED_COLOR_WHITE, OLED_COLOR_BLACK);
     led7seg_setChar(numberToCharUint(standByTiming), FALSE);
     while (1) {
-        if (resetBtn_read() == 0) {
-            currentMode = Calibration;
-            break;
-        }
-
         // light sensor interrupt code
 
         if (standByTiming > 0 && getTicks() - prevCountingTicks > 1000) {
@@ -183,7 +179,6 @@ void doStandByMode() {
             prevCountingTicks = getTicks();
         }
         if (standByTiming == 0) {
-            uint32_t luminance = light_read();
             float temperature = temp_read() / 10.0;
             uint8_t risky = (luminance >= 800);
             uint8_t hot = (temperature >= 26);
@@ -208,10 +203,6 @@ void doActiveMode() {
     oled_clearScreen(OLED_COLOR_BLACK);
 
     while (1) {
-        if (resetBtn_read() == 0) {
-            currentMode = Calibration;
-            break;
-        }
         // to do for active
     }
 }
@@ -239,11 +230,37 @@ void all_init() {
     light_init();
     light_enable();
     light_setRange(LIGHT_RANGE_4000);
+    light_setIrqInCycles(LIGHT_CYCLE_8);
+    luminance = light_read();
+    light_clearIrqStatus();
+    // Enable GPIO Interrupt P2.5 for light sensor
+    LPC_GPIOINT->IO2IntEnF |= 1 << 5;
+    // Enable GPIO Interrupt P2.5 for SW3 (reset button)
+    LPC_GPIOINT->IO0IntEnF |= 1 << 4;
+    // Enable GPIO Interrupt P2.5 for SW4 (calibrated button)
+    LPC_GPIOINT->IO1IntEnF |= 1 << 31;
+    NVIC_EnableIRQ(EINT3_IRQn);
 
     acc_read(&x, &y, &z);
     xoff = 0-x;
     yoff = 0-y;
     zoff = 0-z;
+}
+
+void EINT3_IRQHandler(void){
+	if((LPC_GPIOINT->IO0IntStatF >> 4)& 0x1){
+		LPC_GPIOINT->IO0IntClr |= 1 << 4;
+		currentMode = StandBy;
+	}
+	if((LPC_GPIOINT->IO1IntStatF >> 31)& 0x1){
+		LPC_GPIOINT->IO1IntClr |= 1 << 31;
+		currentMode = Calibration;
+	}
+	if((LPC_GPIOINT->IO2IntStatF >> 5)& 0x1){
+		LPC_GPIOINT->IO2IntClr |= 1 << 5;
+		light_clearIrqStatus();
+		luminance = light_read();
+	}
 }
 
 int main (void) {
@@ -262,4 +279,3 @@ int main (void) {
         }
     }
 }
-
