@@ -140,6 +140,10 @@ void doCalibration(){
     oled_clearScreen(OLED_COLOR_BLACK);
     oled_putString(0, 0, (uint8_t *) "CALIBRATION", OLED_COLOR_WHITE, OLED_COLOR_BLACK);
     while(currentMode == Calibration){
+        if (calibratedBtn_read() == 0) {
+            currentMode = StandBy;
+            break;
+        }
         char oledOutput1[15];
         char oledOutput2[15];
         char oledOutput3[15];
@@ -170,8 +174,10 @@ void doStandByMode() {
 
     oled_putString(0, 0, (uint8_t *)"STANDBY", OLED_COLOR_WHITE, OLED_COLOR_BLACK);
     led7seg_setChar(numberToCharUint(standByTiming), FALSE);
-    while (1) {
-        // light sensor interrupt code
+    while (currentMode == StandBy) {
+        // this part of code will disable oled!!! rgb_setLeds(RGB_RED);
+        //rgb_setLeds(RGB_GREEN);
+        //rgb_setLeds(RGB_RED);
 
         if (standByTiming > 0 && getTicks() - prevCountingTicks > 1000) {
             standByTiming--;
@@ -227,18 +233,32 @@ void all_init() {
 
     temp_init(&getTicks);
     SysTick_Config(SystemCoreClock / 1000);
-    light_init();
+
+    //light interrupt
+        PINSEL_CFG_Type PinCfg;
+        PinCfg.Funcnum = 0;
+        PinCfg.OpenDrain = 0;
+        PinCfg.Pinmode = 0;
+        PinCfg.Portnum = 2;
+        PinCfg.Pinnum = 5;
+        PINSEL_ConfigPin(&PinCfg);
+        GPIO_SetDir(2, (1 << 5), 0);
+    //light_init();
     light_enable();
     light_setRange(LIGHT_RANGE_4000);
-    light_setIrqInCycles(LIGHT_CYCLE_8);
-    luminance = light_read();
+    light_setHiThreshold(150);
+    light_setLoThreshold(50);
+    //light_setIrqInCycles(LIGHT_CYCLE_8);
     light_clearIrqStatus();
+
+    luminance = light_read();
+
     // Enable GPIO Interrupt P2.5 for light sensor
     LPC_GPIOINT->IO2IntEnF |= 1 << 5;
     // Enable GPIO Interrupt P2.5 for SW3 (reset button)
     LPC_GPIOINT->IO0IntEnF |= 1 << 4;
     // Enable GPIO Interrupt P2.5 for SW4 (calibrated button)
-    LPC_GPIOINT->IO1IntEnF |= 1 << 31;
+    //LPC_GPIOINT->IO1IntEnF |= 1 << 31;
     NVIC_EnableIRQ(EINT3_IRQn);
 
     acc_read(&x, &y, &z);
@@ -248,19 +268,23 @@ void all_init() {
 }
 
 void EINT3_IRQHandler(void){
-	if((LPC_GPIOINT->IO0IntStatF >> 4)& 0x1){
-		LPC_GPIOINT->IO0IntClr |= 1 << 4;
-		currentMode = StandBy;
-	}
-	if((LPC_GPIOINT->IO1IntStatF >> 31)& 0x1){
-		LPC_GPIOINT->IO1IntClr |= 1 << 31;
-		currentMode = Calibration;
-	}
-	if((LPC_GPIOINT->IO2IntStatF >> 5)& 0x1){
-		LPC_GPIOINT->IO2IntClr |= 1 << 5;
-		light_clearIrqStatus();
-		luminance = light_read();
-	}
+    // SW3
+    if((LPC_GPIOINT->IO0IntStatF >> 4)& 0x1){
+        LPC_GPIOINT->IO0IntClr |= 1 << 4;
+        currentMode = Calibration;
+    }
+    /*
+    if((LPC_GPIOINT->IO1IntStatF >> 31)& 0x1){
+        LPC_GPIOINT->IO1IntClr |= 1 << 31;
+        currentMode = Calibration;
+    }
+    */
+    // light
+    if((LPC_GPIOINT->IO2IntStatF >> 5)& 0x1){
+        LPC_GPIOINT->IO2IntClr |= 1 << 5;
+        light_clearIrqStatus();
+        luminance = light_read();
+    }
 }
 
 int main (void) {
