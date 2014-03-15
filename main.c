@@ -229,8 +229,11 @@ void all_init() {
     SysTick_Config(SystemCoreClock / 1000);
     light_init();
     light_enable();
+    light_setHiThreshold(150);
+    light_setLoThreshold(50);
     light_setRange(LIGHT_RANGE_4000);
     light_setIrqInCycles(LIGHT_CYCLE_8);
+    GPIO_SetDir(2,1<<5,0);
     luminance = light_read();
     light_clearIrqStatus();
     // Enable GPIO Interrupt P2.5 for light sensor
