@@ -275,7 +275,7 @@ void doActiveMode() {
             uint8_t isRisky = (luminance >= LuminanceThreshold);
             uint8_t isHot = (temperature >= TemperatureThreshold);
             if (isRisky || isHot) {
-                CurrentMode = StandBy;
+                currentMode = StandBy;
                 break;
             }
             if (isRisky) {
@@ -297,7 +297,7 @@ void doActiveMode() {
                     if (frequency < UnsafeFrequencyLowerBound || frequency > UnsafeFrequencyUpperBound) {
                         isTimingForWarningOn = 0;
                         prevTimingForWarningOff = getTicks();
-                    } else if (frenquency >= UnsafeFrequencyLowerBound && frequency <= UnsafeFrequencyUpperBound) {
+                    } else if (frequency >= UnsafeFrequencyLowerBound && frequency <= UnsafeFrequencyUpperBound) {
                         isTimingForWarningOn = 1;
                         prevTimingForWarningOn = getTicks();
                     } else if (!warningOn &&
@@ -307,7 +307,7 @@ void doActiveMode() {
                         prevTimingForWarningOff = getTicks();
                         prevTimingForWarningOn = getTicks();
                     } else if (warningOn &&
-                            isTimingForWarningOff && (getTicks() - prevTimingForWarningOff > TimeWindow)) {
+                            !isTimingForWarningOn && (getTicks() - prevTimingForWarningOff > TimeWindow)) {
                         turnOnWarning();
                         isTimingForWarningOn = 1;
                         prevTimingForWarningOn = getTicks();
@@ -398,6 +398,7 @@ void EINT3_IRQHandler(void){
 
 int main (void) {
     all_init();
+    currentMode = Active;
     while (1) {
         if (currentMode == Calibration) {
             doCalibration();
