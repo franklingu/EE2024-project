@@ -35,6 +35,7 @@ static const int TemperatureThreshold = 26;
 static const int LuminanceThreshold = 800;
 static const int UnsafeFrequencyLowerBound = 2;
 static const int UnsafeFrequencyUpperBound = 10;
+static const int TimeWindow = 3000;
 
 static uint32_t msTicks = 0;
 static uint32_t luminance;
@@ -258,7 +259,12 @@ void doStandByMode() {
 void doActiveMode() {
     uint32_t prevCountingTicks = getTicks();
     uint32_t prevPCTimingTicks = getTicks();
-    uint32_t numberOfAccZAxisChange = 0;
+    uint32_t prevTimingForWarningOn = getTicks();
+    uint32_t prevTimingForWarningOff = getTicks();
+    uint32_t prevTimingForZAxisRecorded = getTicks();
+    uint8_t countForFrequency = 0;
+    int8_t prevZAxisIsNonNegative = (z >= 0);
+    int8_t isTimingForWarningOn = 0;
     float frequency;
 
     oled_clearScreen(OLED_COLOR_BLACK);
@@ -268,7 +274,7 @@ void doActiveMode() {
             float temperature = temp_read() / 10.0;
             uint8_t isRisky = (luminance >= LuminanceThreshold);
             uint8_t isHot = (temperature >= TemperatureThreshold);
-            if (isRisky && isHot) {
+            if (isRisky || isHot) {
                 CurrentMode = StandBy;
                 break;
             }
@@ -282,19 +288,37 @@ void doActiveMode() {
             } else {
                  oled_putString(0, 20, (uint8_t *)"NORMAL", OLED_COLOR_WHITE, OLED_COLOR_BLACK);
             }
+            accReadSelfImproved();
+            if ((prevZAxisIsNonNegative && z < 0) || (!prevZAxisIsNonNegative && z >= 0)) {
+                prevZAxisIsNonNegative = !prevZAxisIsNonNegative;
+                countForFrequency ++;
+                if (countForFrequency % 2 == 0) {
+                    frequency = (float)TicksInOneSecond / (getTicks() - prevTimingForZAxisRecorded);
+                    if (frequency < UnsafeFrequencyLowerBound || frequency > UnsafeFrequencyUpperBound) {
+                        isTimingForWarningOn = 0;
+                        prevTimingForWarningOff = getTicks();
+                    } else if (frenquency >= UnsafeFrequencyLowerBound && frequency <= UnsafeFrequencyUpperBound) {
+                        isTimingForWarningOn = 1;
+                        prevTimingForWarningOn = getTicks();
+                    } else if (!warningOn &&
+                            isTimingForWarningOn && (getTicks() - prevTimingForWarningOn > TimeWindow)) {
+                        turnOnWarning();
+                        isTimingForWarningOn = 0;
+                        prevTimingForWarningOff = getTicks();
+                        prevTimingForWarningOn = getTicks();
+                    } else if (warningOn &&
+                            isTimingForWarningOff && (getTicks() - prevTimingForWarningOff > TimeWindow)) {
+                        turnOnWarning();
+                        isTimingForWarningOn = 1;
+                        prevTimingForWarningOn = getTicks();
+                        prevTimingForWarningOff = getTicks();
+                    }
+                }
+            }
             prevCountingTicks = getTicks();
         }
         if (getTicks() - prevPCTimingTicks >= TicksInOneSecond) {
             // TODO: report to PC using UART
-            if (warningOn) {
-                (frequency < UnsafeFrequencyLowerBound ||
-                                            frequency > UnsafeFrequencyUpperBound);
-                turnOnWarning();
-            } else if (warningOff) {
-                (frenquency >= UnsafeFrequencyLowerBound && frequency <=
-                                            UnsafeFrequencyUpperBound);
-                turnOffWarning();
-            }
             prevPCTimingTicks = getTicks();
         }
     }
