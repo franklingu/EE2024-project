@@ -34,7 +34,7 @@ static const int TicksInOneSecond = 1000;
 static const int SensorOperatingTimeInterval = 25;
 static const int TemperatureThreshold = 30;
 static const int LuminanceThreshold = 800;
-static const int UnsafeFrequencyLowerBound = 2;
+static const int UnsafeFrequencyLowerBound = 0;
 static const int UnsafeFrequencyUpperBound = 10;
 static const int TimeWindow = 3000;
 
@@ -169,13 +169,13 @@ uint8_t numberToCharUint(int number) {
 
 void turnOnWarning() {
     // TODO: turn on warning
-    oled_putString(0, 60, (uint8_t *)"WARNING", OLED_COLOR_WHITE, OLED_COLOR_BLACK);
+    oled_putString(30, 0, (uint8_t *)"WARNING", OLED_COLOR_WHITE, OLED_COLOR_BLACK);
     warningOn = 1;
 }
 
 void turnOffWarning() {
     // TODO: turn off warning
-    oled_putString(0, 60, (uint8_t *)"       ", OLED_COLOR_WHITE, OLED_COLOR_BLACK);
+    oled_putString(30, 0, (uint8_t *)"       ", OLED_COLOR_WHITE, OLED_COLOR_BLACK);
     warningOn = 0;
 }
 
@@ -297,9 +297,10 @@ void doActiveMode() {
             printf("Acc Z in active: %d\n", z);
             if ((prevZAxisIsNonNegative && z < 0) || (!prevZAxisIsNonNegative && z >= 0)) {
                 prevZAxisIsNonNegative = !prevZAxisIsNonNegative;
-                countForFrequency ++;
+                countForFrequency++;
                 if (countForFrequency % 2 == 0) {
                     frequency = (float)TicksInOneSecond / (getTicks() - prevTimingForZAxisRecorded);
+                    prevTimingForZAxisRecorded = getTicks();
                     if (frequency < UnsafeFrequencyLowerBound || frequency > UnsafeFrequencyUpperBound) {
                         isTimingForWarningOn = 0;
                         prevTimingForWarningOff = getTicks();
