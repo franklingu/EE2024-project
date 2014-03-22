@@ -169,14 +169,18 @@ uint8_t numberToCharUint(int number) {
 
 void turnOnWarning() {
     // TODO: turn on warning
-    oled_putString(30, 0, (uint8_t *)"WARNING", OLED_COLOR_WHITE, OLED_COLOR_BLACK);
+	rgb_setLeds(RGB_BLUE);
+    oled_putString(30, 40, (uint8_t *)"WARNING", OLED_COLOR_WHITE, OLED_COLOR_BLACK);
     warningOn = 1;
+    printf("warning is on\n");
 }
 
 void turnOffWarning() {
     // TODO: turn off warning
-    oled_putString(30, 0, (uint8_t *)"       ", OLED_COLOR_WHITE, OLED_COLOR_BLACK);
+	rgb_setLeds(RGB_GREEN);
+    oled_putString(30, 40, (uint8_t *)"       ", OLED_COLOR_WHITE, OLED_COLOR_BLACK);
     warningOn = 0;
+    printf("warning is off\n");
 }
 
 void accReadSelfImproved() {
@@ -266,8 +270,10 @@ void doActiveMode() {
     uint32_t prevTimingForWarningOn = getTicks();
     uint32_t prevTimingForWarningOff = getTicks();
     uint32_t prevTimingForZAxisRecorded = getTicks();
+    uint32_t prevTimingForUnchanging = getTicks();
     uint8_t countForFrequency = 0;
     int8_t prevZAxisIsNonNegative = (z >= 0);
+    int8_t isPrevFrequencySafe = 1;
     int8_t isTimingForWarningOn = 0;
     float frequency;
 
@@ -301,13 +307,17 @@ void doActiveMode() {
                 if (countForFrequency % 2 == 0) {
                     frequency = (float)TicksInOneSecond / (getTicks() - prevTimingForZAxisRecorded);
                     prevTimingForZAxisRecorded = getTicks();
-                    if (frequency < UnsafeFrequencyLowerBound || frequency > UnsafeFrequencyUpperBound) {
+
+                    if ((frequency < UnsafeFrequencyLowerBound || frequency > UnsafeFrequencyUpperBound) && !isPrevFrequencySafe) {
                         isTimingForWarningOn = 0;
                         prevTimingForWarningOff = getTicks();
-                    } else if (frequency >= UnsafeFrequencyLowerBound && frequency <= UnsafeFrequencyUpperBound) {
+                        isPrevFrequencySafe = 1;
+                    } else if ((frequency >= UnsafeFrequencyLowerBound && frequency <= UnsafeFrequencyUpperBound) && isPrevFrequencySafe) {
                         isTimingForWarningOn = 1;
                         prevTimingForWarningOn = getTicks();
-                    } else if (!warningOn &&
+                        isPrevFrequencySafe = 0;
+                    }
+                    if (!warningOn &&
                             isTimingForWarningOn && (getTicks() - prevTimingForWarningOn > TimeWindow)) {
                         turnOnWarning();
                         isTimingForWarningOn = 0;
@@ -315,12 +325,21 @@ void doActiveMode() {
                         prevTimingForWarningOn = getTicks();
                     } else if (warningOn &&
                             !isTimingForWarningOn && (getTicks() - prevTimingForWarningOff > TimeWindow)) {
-                        turnOnWarning();
+                        turnOffWarning();
                         isTimingForWarningOn = 1;
                         prevTimingForWarningOn = getTicks();
                         prevTimingForWarningOff = getTicks();
                     }
                 }
+                prevTimingForUnchanging = getTicks();
+            } else {
+            	if (getTicks() - prevTimingForUnchanging >= TimeWindow) {
+            		turnOffWarning();
+            		isTimingForWarningOn = 0;
+            		isPrevFrequencySafe = 1;
+            		prevTimingForWarningOff = getTicks();
+            		prevTimingForUnchanging = getTicks();
+            	}
             }
             prevCountingTicks = getTicks();
         }
@@ -341,7 +360,7 @@ void all_init() {
     led7seg_init();
     acc_init();
     oled_init();
-    //rgb_init();
+    rgb_init();
     GPIO_SetDir( 2, 0, 0 );
 
     GPIO_ClearValue(0, 1<<27); //LM4811-clk
