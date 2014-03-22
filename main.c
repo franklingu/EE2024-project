@@ -146,6 +146,11 @@ void shouldUpdateXYZ(){
 	if (z - z_prev <= 3 && z - z_prev >= -3){
 		z = z_prev;
 		}
+	if (x >= -3 && x <= 3
+		&& y >= -3 && y <= 3
+		&& z >= -3 && z <= 3){
+		x = y = z = 0;
+	}
 }
 
 void doCalibration() {
