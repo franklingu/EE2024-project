@@ -133,9 +133,28 @@ static uint32_t getTicks(void) {
 }
 
 int8_t x, y, z;
+int8_t x_prev, y_prev, z_prev;
 int32_t xoff, yoff, zoff;
 
-void doCalibration(){
+void shouldUpdateXYZ(){
+	if (x - x_prev <= 3 && x - x_prev >= -3){
+		x = x_prev;
+	}
+	if (y - y_prev <= 3 && y - y_prev >= -3){
+		y = y_prev;
+		}
+	if (z - z_prev <= 3 && z - z_prev >= -3){
+		z = z_prev;
+		}
+}
+
+void doCalibration() {
+	GPIO_ClearValue( 2, 0 );
+    char oledOutput1[15];
+    char oledOutput2[15];
+    char oledOutput3[15];
+    uint32_t prevCountingTicks = getTicks();
+
     led7seg_setChar('0', FALSE);
     oled_clearScreen(OLED_COLOR_BLACK);
     oled_putString(0, 0, (uint8_t *) "CALIBRATION", OLED_COLOR_WHITE, OLED_COLOR_BLACK);
@@ -144,22 +163,25 @@ void doCalibration(){
             currentMode = StandBy;
             break;
         }
-        char oledOutput1[15];
-        char oledOutput2[15];
-        char oledOutput3[15];
-        acc_read(&x, &y, &z);
-        x = x+xoff;
-        y = y+yoff;
-        z = z+zoff;
-        sprintf(oledOutput1, "Acc: %d   ", x);
-        sprintf(oledOutput2, "     %d   ", y);
-        sprintf(oledOutput3, "     %d   ", z);
-        oled_putString(0, 10, (uint8_t *) oledOutput1, OLED_COLOR_WHITE, OLED_COLOR_BLACK);
-        oled_putString(0, 20, (uint8_t *) oledOutput2, OLED_COLOR_WHITE, OLED_COLOR_BLACK);
-        oled_putString(0, 30, (uint8_t *) oledOutput3, OLED_COLOR_WHITE, OLED_COLOR_BLACK);
+        if (getTicks() - prevCountingTicks > 25) {
+        	x_prev = x;
+        	y_prev = y;
+        	z_prev = z;
+            acc_read(&x, &y, &z);
+            x = x+xoff;
+            y = y+yoff;
+            z = z+zoff;
+            shouldUpdateXYZ();
+            sprintf(oledOutput1, "Acc: %d   ", x);
+            sprintf(oledOutput2, "     %d   ", y);
+            sprintf(oledOutput3, "     %d   ", z);
+            oled_putString(0, 10, (uint8_t *)oledOutput1, OLED_COLOR_WHITE, OLED_COLOR_BLACK);
+            oled_putString(0, 20, (uint8_t *)oledOutput2, OLED_COLOR_WHITE, OLED_COLOR_BLACK);
+            oled_putString(0, 30, (uint8_t *)oledOutput3, OLED_COLOR_WHITE, OLED_COLOR_BLACK);
+            prevCountingTicks = getTicks();
+        }
     }
 }
-
 
 uint8_t numberToCharUint(int number) {
     return (uint8_t)(number + 48);
@@ -168,6 +190,7 @@ uint8_t numberToCharUint(int number) {
 uint32_t luminance;
 
 void doStandByMode() {
+	GPIO_SetValue( 2, 0);
     oled_clearScreen(OLED_COLOR_BLACK);
     int standByTiming = 5;
     int prevCountingTicks = getTicks();
@@ -220,7 +243,8 @@ void all_init() {
     led7seg_init();
     acc_init();
     oled_init();
-    rgb_init();
+    //rgb_init();
+    GPIO_SetDir( 2, 0, 0 );
 
     GPIO_ClearValue(0, 1<<27); //LM4811-clk
     GPIO_ClearValue(0, 1<<28); //LM4811-up/dn
@@ -231,7 +255,6 @@ void all_init() {
     temp_init(&getTicks);
     SysTick_Config(SystemCoreClock / 1000);
 
-    // not working !
     //light interrupt
     PINSEL_CFG_Type PinCfg;
     PinCfg.Funcnum = 0;
@@ -245,21 +268,20 @@ void all_init() {
 
     light_enable();
     light_setRange(LIGHT_RANGE_4000);
+
+
     light_setHiThreshold(150);
     light_setLoThreshold(50);
-    //light_setIrqInCycles(LIGHT_CYCLE_8);
+    light_setIrqInCycles(LIGHT_CYCLE_8);
     light_clearIrqStatus();
+
 
     luminance = light_read();
 
-    // not working !
-    // Enable GPIO Interrupt P2. for light sensor
+    // Enable GPIO Interrupt P2.5 for light sensor
     LPC_GPIOINT->IO2IntEnF |= 1 << 5;
     // Enable GPIO Interrupt P0.4 for SW3 (reset button)
     LPC_GPIOINT->IO0IntEnF |= 1 << 4;
-    // not working !
-    // Enable GPIO Interrupt P2.6 for SW4 (calibrated button)
-    LPC_GPIOINT->IO2IntEnF |= 1 << 6;
     NVIC_EnableIRQ(EINT3_IRQn);
 
     acc_read(&x, &y, &z);
@@ -274,12 +296,7 @@ void EINT3_IRQHandler(void){
         LPC_GPIOINT->IO0IntClr |= 1 << 4;
         currentMode = Calibration;
     }
-    // SW4
-    // not working
-    if ((LPC_GPIOINT->IO2IntStatF >> 6) & 0x1){
-        LPC_GPIOINT->IO2IntClr |= 1 << 6;
-        currentMode = StandBy;
-    }
+
     // light
     if ((LPC_GPIOINT->IO2IntStatF >> 5)& 0x1){
         LPC_GPIOINT->IO2IntClr |= 1 << 5;
