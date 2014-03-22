@@ -29,9 +29,10 @@ typedef enum {
     Active,
 } MachineMode;
 
+// TODO: config const later for proper functioning
 static const int TicksInOneSecond = 1000;
 static const int SensorOperatingTimeInterval = 25;
-static const int TemperatureThreshold = 26;
+static const int TemperatureThreshold = 30;
 static const int LuminanceThreshold = 800;
 static const int UnsafeFrequencyLowerBound = 2;
 static const int UnsafeFrequencyUpperBound = 10;
@@ -240,7 +241,10 @@ void doStandByMode() {
             uint8_t isHot = (temperature >= TemperatureThreshold);
 
             // TODO: if conditions met, go to the active mode
-
+            if (!isRisky && !isHot) {
+                currentMode = Active;
+                break;
+            }
             if (isRisky) {
                 oled_putString(0, 10, (uint8_t *)"RISKY", OLED_COLOR_WHITE, OLED_COLOR_BLACK);
             } else {
@@ -268,6 +272,7 @@ void doActiveMode() {
     float frequency;
 
     oled_clearScreen(OLED_COLOR_BLACK);
+    led7seg_setChar('0', FALSE);
     oled_putString(0, 0, (uint8_t *)"ACTIVE", OLED_COLOR_WHITE, OLED_COLOR_BLACK);
     while (currentMode == Active) {
         if (getTicks() - prevCountingTicks >= SensorOperatingTimeInterval) {
@@ -289,6 +294,7 @@ void doActiveMode() {
                  oled_putString(0, 20, (uint8_t *)"NORMAL", OLED_COLOR_WHITE, OLED_COLOR_BLACK);
             }
             accReadSelfImproved();
+            printf("Acc Z in active: %d\n", z);
             if ((prevZAxisIsNonNegative && z < 0) || (!prevZAxisIsNonNegative && z >= 0)) {
                 prevZAxisIsNonNegative = !prevZAxisIsNonNegative;
                 countForFrequency ++;
