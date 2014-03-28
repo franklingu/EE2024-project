@@ -29,8 +29,22 @@ typedef enum {
     Active,
 } MachineMode;
 
-static uint32_t msTicks = 0;  //global variable for timing
+// TODO: config const later for proper functioning
+static const int TicksInOneSecond = 1000;
+static const int SensorOperatingTimeInterval = 15;
+static const int TemperatureThreshold = 30;
+static const int LuminanceThreshold = 800;
+static const int UnsafeFrequencyLowerBound = 0;
+static const int UnsafeFrequencyUpperBound = 10;
+static const int TimeWindow = 3000;
+
+uint32_t msTicks = 0;
+uint32_t luminance;
+int8_t x, y, z;
+int8_t x_prev, y_prev, z_prev;
+int32_t xoff, yoff, zoff;
 MachineMode currentMode = Calibration;
+int8_t warningOn = 0;
 
 static void ssp_init(void)
 {
@@ -100,7 +114,7 @@ void resetBtn_init(void) {
 }
 
 void calibratedBtn_init(void) {
-	PINSEL_CFG_Type PinCfg;
+    PINSEL_CFG_Type PinCfg;
     PinCfg.Portnum = 1;
     PinCfg.Pinnum = 31;
     PinCfg.Funcnum = 0;
@@ -111,17 +125,17 @@ void calibratedBtn_init(void) {
 }
 
 int resetBtn_read(void) {
-	uint32_t state;
+    uint32_t state;
 
     state = GPIO_ReadValue(0);
     return state & (1 << 4);
 }
 
 int calibratedBtn_read(void) {
-	uint32_t state;
+    uint32_t state;
 
-	state = GPIO_ReadValue(1);
-	return state & (1 << 31);
+    state = GPIO_ReadValue(1);
+    return state & (1 << 31);
 }
 
 void SysTick_Handler(void) {
@@ -132,70 +146,233 @@ static uint32_t getTicks(void) {
     return msTicks;
 }
 
-int8_t x, y, z;
-
-void doCalibration(){
-	oled_clearScreen(OLED_COLOR_BLACK);
-	while(calibratedBtn_read() != 0){
-		char oledOutput[256];
-		acc_read(&x, &y, &z);
-		sprintf(oledOutput, "Acc: %d %d %d", x, y, z);
-		oled_putString(10, 10, (uint8_t *) "CALIBRATION", OLED_COLOR_WHITE, OLED_COLOR_BLACK);
-		oled_putString(10, 20, (uint8_t *) oledOutput, OLED_COLOR_WHITE, OLED_COLOR_BLACK);
-	}
-	currentMode = StandBy;
+void shouldUpdateXYZ(){
+    if (x - x_prev <= 3 && x - x_prev >= -3){
+        x = x_prev;
+    }
+    if (y - y_prev <= 3 && y - y_prev >= -3){
+        y = y_prev;
+        }
+    if (z - z_prev <= 3 && z - z_prev >= -3){
+        z = z_prev;
+        }
+    if (x >= -3 && x <= 3
+        && y >= -3 && y <= 3
+        && z >= -3 && z <= 3){
+        x = y = z = 0;
+    }
 }
 
-
 uint8_t numberToCharUint(int number) {
-	return (uint8_t)(number + 48);
+    return (uint8_t)(number + 48);
+}
+
+void playBuzzer() {
+    GPIO_SetValue(0, 1 << 26);
+    Timer0_us_Wait(2272 / 2);
+    GPIO_ClearValue(0, 1 << 26);
+    Timer0_us_Wait(2272 / 2);
+}
+
+void turnOnWarning() {
+    GPIO_SetValue(2, (1 << 0));
+    oled_putString(30, 40, (uint8_t*)"WARNING", OLED_COLOR_WHITE, OLED_COLOR_BLACK);
+    warningOn = 1;
+    pca9532_setLeds(0xffff, 0xffff);
+    printf("warning is on\n");
+}
+
+void turnOffWarning() {
+    // TODO: turn off warning
+	GPIO_ClearValue( 2, (1<<0));
+    oled_putString(30, 40, (uint8_t *)"       ", OLED_COLOR_WHITE, OLED_COLOR_BLACK);
+    warningOn = 0;
+    pca9532_setLeds(0x0000, 0xffff);
+    GPIO_ClearValue(0, 1<<26);
+    printf("warning is off\n");
+}
+
+void accReadSelfImproved() {
+    x_prev = x;
+    y_prev = y;
+    z_prev = z;
+    acc_read(&x, &y, &z);
+    x = x + xoff;
+    y = y + yoff;
+    z = z + zoff;
+    shouldUpdateXYZ();
+}
+
+void doCalibration() {
+    char oledOutput1[15];
+    char oledOutput2[15];
+    char oledOutput3[15];
+    uint32_t prevCountingTicks = getTicks();
+
+    acc_setMode(ACC_MODE_MEASURE);
+    led7seg_setChar('0', FALSE);
+    oled_clearScreen(OLED_COLOR_BLACK);
+    oled_putString(0, 0, (uint8_t *) "CALIBRATION", OLED_COLOR_WHITE, OLED_COLOR_BLACK);
+    while(currentMode == Calibration){
+        if (calibratedBtn_read() == 0) {
+            currentMode = StandBy;
+            break;
+        }
+        if (getTicks() - prevCountingTicks >= SensorOperatingTimeInterval) {
+            accReadSelfImproved();
+            sprintf(oledOutput1, "Acc: %d   ", x);
+            sprintf(oledOutput2, "     %d   ", y);
+            sprintf(oledOutput3, "     %d   ", z);
+            oled_putString(0, 10, (uint8_t *)oledOutput1, OLED_COLOR_WHITE, OLED_COLOR_BLACK);
+            oled_putString(0, 20, (uint8_t *)oledOutput2, OLED_COLOR_WHITE, OLED_COLOR_BLACK);
+            oled_putString(0, 30, (uint8_t *)oledOutput3, OLED_COLOR_WHITE, OLED_COLOR_BLACK);
+            prevCountingTicks = getTicks();
+        }
+    }
 }
 
 void doStandByMode() {
-	oled_clearScreen(OLED_COLOR_BLACK);
-	int standByTiming = 5;
-	int prevCountingTicks = getTicks();
+    int standByTiming = 5;
+    uint32_t prevCountingTicks = getTicks();
 
-	oled_putString(0, 0, (uint8_t *)"STANDBY", OLED_COLOR_WHITE, OLED_COLOR_BLACK);
-	led7seg_setChar(numberToCharUint(standByTiming), FALSE);
-	while (1) {
-	    if (resetBtn_read() == 0) {
-	        currentMode = Calibration;
-	        break;
-	    }
+    acc_setMode(ACC_MODE_STANDBY);
+    oled_clearScreen(OLED_COLOR_BLACK);
+    oled_putString(0, 0, (uint8_t *)"STANDBY", OLED_COLOR_WHITE, OLED_COLOR_BLACK);
+    led7seg_setChar(numberToCharUint(standByTiming), FALSE);
+    while (currentMode == StandBy) {
+        if (standByTiming > 0 && getTicks() - prevCountingTicks >= TicksInOneSecond) {
+            // TODO: set up connection to PC
+            standByTiming--;
+            led7seg_setChar(numberToCharUint(standByTiming), FALSE);
+            prevCountingTicks = getTicks();
+        }
+        if (standByTiming == 0 && getTicks() - prevCountingTicks >= SensorOperatingTimeInterval) {
+            float temperature = temp_read() / 10.0;
+            uint8_t isRisky = (luminance >= LuminanceThreshold);
+            uint8_t isHot = (temperature >= TemperatureThreshold);
 
-	    // light sensor interrupt code
+            // TODO: if conditions met, go to the active mode
+            if (!isRisky && !isHot) {
+                currentMode = Active;
+                break;
+            }
+            if (isRisky) {
+                oled_putString(0, 10, (uint8_t *)"RISKY", OLED_COLOR_WHITE, OLED_COLOR_BLACK);
+            } else {
+                oled_putString(0, 10, (uint8_t *)"SAFE ", OLED_COLOR_WHITE, OLED_COLOR_BLACK);
+            }
+            if (isHot) {
+                oled_putString(0, 20, (uint8_t *)"HOT   ", OLED_COLOR_WHITE, OLED_COLOR_BLACK);
+            } else {
+                oled_putString(0, 20, (uint8_t *)"NORMAL", OLED_COLOR_WHITE, OLED_COLOR_BLACK);
+            }
+            prevCountingTicks = getTicks();
+        }
+    }
+}
 
-	    if (standByTiming > 0 && getTicks() - prevCountingTicks > 1000) {
-	    	standByTiming--;
-	    	led7seg_setChar(numberToCharUint(standByTiming), FALSE);
-	    	prevCountingTicks = getTicks();
-	    }
-	    if (standByTiming == 0) {
-	    	uint32_t luminance = light_read();
-	    	float temperature = temp_read() / 10.0;
-	    	uint8_t risky = (luminance >= 800);
-	    	uint8_t hot = (temperature >= 26);
+void doActiveMode() {
+    uint32_t prevCountingTicks = getTicks();
+    uint32_t prevPCTimingTicks = getTicks();
+    uint32_t prevTimingForWarningOn = getTicks();
+    uint32_t prevTimingForWarningOff = getTicks();
+    uint32_t prevTimingForZAxisRecorded = getTicks();
+    uint32_t prevTimingForUnchanging = getTicks();
+    uint32_t countForFrequency = 0;
+    int8_t prevZAxisIsNonNegative = (z >= 0);
+    int8_t isPrevFrequencySafe = 1;
+    int8_t isTimingForWarningOn = 0;
+    float frequency;
 
-	    	// if conditions met, go to the active mode
+    acc_setMode(ACC_MODE_MEASURE);
+    oled_clearScreen(OLED_COLOR_BLACK);
+    led7seg_setChar('0', FALSE);
+    oled_putString(0, 0, (uint8_t *)"ACTIVE", OLED_COLOR_WHITE, OLED_COLOR_BLACK);
+    while (currentMode == Active) {
+    	if (warningOn) {
+    		playBuzzer();
+    	}
+        if (getTicks() - prevCountingTicks >= SensorOperatingTimeInterval) {
+            float temperature = temp_read() / 10.0;
+            uint8_t isRisky = (luminance >= LuminanceThreshold);
+            uint8_t isHot = (temperature >= TemperatureThreshold);
+            if (isRisky || isHot) {
+                currentMode = StandBy;
+                break;
+            }
+            if (isRisky) {
+                 oled_putString(0, 10, (uint8_t *)"RISKY", OLED_COLOR_WHITE, OLED_COLOR_BLACK);
+            } else {
+                 oled_putString(0, 10, (uint8_t *)"SAFE ", OLED_COLOR_WHITE, OLED_COLOR_BLACK);
+            }
+            if (isHot) {
+                 oled_putString(0, 20, (uint8_t *)"HOT   ", OLED_COLOR_WHITE, OLED_COLOR_BLACK);
+            } else {
+                 oled_putString(0, 20, (uint8_t *)"NORMAL", OLED_COLOR_WHITE, OLED_COLOR_BLACK);
+            }
+            accReadSelfImproved();
+            if ((prevZAxisIsNonNegative && z < 0) || (!prevZAxisIsNonNegative && z >= 0)) {
+                prevZAxisIsNonNegative = !prevZAxisIsNonNegative;
+                countForFrequency++;
+                if (countForFrequency % 2 == 0) {
+                    frequency = (float)TicksInOneSecond / (getTicks() - prevTimingForZAxisRecorded);
+                    printf("frequency detected : %f\n", frequency);
+                    prevTimingForZAxisRecorded = getTicks();
 
-	    	if (risky) {
-	    		oled_putString(0, 10, (uint8_t *)"RISKY", OLED_COLOR_WHITE, OLED_COLOR_BLACK);
-	    	} else {
-	    		oled_putString(0, 10, (uint8_t *)"SAFE ", OLED_COLOR_WHITE, OLED_COLOR_BLACK);
-	    	}
-	    	if (hot) {
-	    		oled_putString(0, 20, (uint8_t *)"HOT   ", OLED_COLOR_WHITE, OLED_COLOR_BLACK);
-	    	} else {
-	    		oled_putString(0, 20, (uint8_t *)"NORMAL", OLED_COLOR_WHITE, OLED_COLOR_BLACK);
-	    	}
-	    }
-	}
+                    if ((frequency < UnsafeFrequencyLowerBound || frequency > UnsafeFrequencyUpperBound) && !isPrevFrequencySafe) {
+                        isTimingForWarningOn = 0;
+                        prevTimingForWarningOff = getTicks();
+                        prevTimingForWarningOn = getTicks();
+                        isPrevFrequencySafe = 1;
+                    } else if ((frequency >= UnsafeFrequencyLowerBound && frequency <= UnsafeFrequencyUpperBound) && isPrevFrequencySafe) {
+                        isTimingForWarningOn = 1;
+                        prevTimingForWarningOff = getTicks();
+                        prevTimingForWarningOn = getTicks();
+                        isPrevFrequencySafe = 0;
+                    } else if ((frequency < UnsafeFrequencyLowerBound || frequency > UnsafeFrequencyUpperBound) && !isPrevFrequencySafe) {
+                    	isTimingForWarningOn = 0;
+                    	prevTimingForWarningOn = getTicks();
+                    } else if ((frequency < UnsafeFrequencyLowerBound || frequency > UnsafeFrequencyUpperBound) && isPrevFrequencySafe) {
+                    	isTimingForWarningOn = 1;
+                    	prevTimingForWarningOff = getTicks();
+                    }
+                    if (!warningOn &&
+                            isTimingForWarningOn && (getTicks() - prevTimingForWarningOn > TimeWindow)) {
+                        turnOnWarning();
+                        isTimingForWarningOn = 0;
+                        prevTimingForWarningOff = getTicks();
+                        prevTimingForWarningOn = getTicks();
+                    } else if (warningOn &&
+                            !isTimingForWarningOn && (getTicks() - prevTimingForWarningOff > TimeWindow)) {
+                        turnOffWarning();
+                        isTimingForWarningOn = 1;
+                        prevTimingForWarningOn = getTicks();
+                        prevTimingForWarningOff = getTicks();
+                    }
+                }
+                prevTimingForUnchanging = getTicks();
+            } else {
+            	if (getTicks() - prevTimingForUnchanging >= TimeWindow) {
+            		turnOffWarning();
+            		isTimingForWarningOn = 0;
+            		isPrevFrequencySafe = 1;
+            		prevTimingForWarningOff = getTicks();
+            		prevTimingForUnchanging = getTicks();
+            	}
+            }
+            prevCountingTicks = getTicks();
+        }
+        if (getTicks() - prevPCTimingTicks >= TicksInOneSecond) {
+            // TODO: report to PC using UART
+            prevPCTimingTicks = getTicks();
+        }
+    }
 }
 
 void all_init() {
     i2c_init();
     ssp_init();
+
     resetBtn_init();
     calibratedBtn_init();
 
@@ -203,7 +380,15 @@ void all_init() {
     led7seg_init();
     acc_init();
     oled_init();
-    rgb_init();
+
+    // GPIO settings generally
+    GPIO_SetDir( 2, (1<<0), 1 );
+    GPIO_SetDir( 2, 0, 0 );
+    GPIO_SetDir(2, 1<<1, 1);
+    GPIO_SetDir(0, 1<<27, 1);
+    GPIO_SetDir(0, 1<<28, 1);
+    GPIO_SetDir(2, 1<<13, 1);
+    GPIO_SetDir(0, 1<<26, 1);
 
     GPIO_ClearValue(0, 1<<27); //LM4811-clk
     GPIO_ClearValue(0, 1<<28); //LM4811-up/dn
@@ -212,17 +397,63 @@ void all_init() {
     oled_clearScreen(OLED_COLOR_BLACK);
 
     temp_init(&getTicks);
-    SysTick_Config(SystemCoreClock / 1000);
+    SysTick_Config(SystemCoreClock / TicksInOneSecond);
+
+    //light interrupt
+    PINSEL_CFG_Type PinCfg;
+    PinCfg.Funcnum = 0;
+    PinCfg.OpenDrain = 0;
+    PinCfg.Pinmode = 0;
+    PinCfg.Portnum = 2;
+    PinCfg.Pinnum = 5;
+    PINSEL_ConfigPin(&PinCfg);
+    GPIO_SetDir(2, (1 << 5), 0);
     light_init();
+
     light_enable();
     light_setRange(LIGHT_RANGE_4000);
+
+
+    light_setHiThreshold(150);
+    light_setLoThreshold(50);
+    light_setIrqInCycles(LIGHT_CYCLE_8);
+    light_clearIrqStatus();
+
+
+    luminance = light_read();
+
+    // Enable GPIO Interrupt P2.5 for light sensor
+    LPC_GPIOINT->IO2IntEnF |= 1 << 5;
+    // Enable GPIO Interrupt P0.4 for SW3 (reset button)
+    LPC_GPIOINT->IO0IntEnF |= 1 << 4;
+    NVIC_EnableIRQ(EINT3_IRQn);
+
+    acc_read(&x, &y, &z);
+    xoff = 0-x;
+    yoff = 0-y;
+    zoff = 0-z;
+}
+
+void EINT3_IRQHandler(void){
+    // SW3
+    if ((LPC_GPIOINT->IO0IntStatF >> 4) & 0x1){
+        LPC_GPIOINT->IO0IntClr |= 1 << 4;
+        currentMode = Calibration;
+    }
+
+    // light
+    if ((LPC_GPIOINT->IO2IntStatF >> 5)& 0x1){
+        LPC_GPIOINT->IO2IntClr |= 1 << 5;
+        light_clearIrqStatus();
+        luminance = light_read();
+    }
 }
 
 int main (void) {
-	all_init();
+    all_init();
     while (1) {
         if (currentMode == Calibration) {
-        	doCalibration();
+            doCalibration();
         }
 
         if (currentMode == StandBy) {
@@ -230,11 +461,7 @@ int main (void) {
         }
 
         if (currentMode == Active) {
-            if (resetBtn_read() == 0) {
-                currentMode = Calibration;
-                break;
-            }
-            // to do for active
+            doActiveMode();
         }
     }
 }
