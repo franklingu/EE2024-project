@@ -146,19 +146,27 @@ static uint32_t getTicks(void) {
     return msTicks;
 }
 
+int recentValCounter = 0;
+int8_t recentX[5] = {0,0,0,0,0};
+int8_t recentY[5] = {0,0,0,0,0};
+int8_t recentZ[5] = {0,0,0,0,0};
+
 void shouldUpdateXYZ(){
-    if (x - x_prev <= 3 && x - x_prev >= -3){
-        x = x_prev;
-    }
-    if (y - y_prev <= 3 && y - y_prev >= -3){
-        y = y_prev;
-        }
-    if (z - z_prev <= 3 && z - z_prev >= -3){
-        z = z_prev;
-        }
-    if (x >= -3 && x <= 3
-        && y >= -3 && y <= 3
-        && z >= -3 && z <= 3){
+    recentX[recentValCounter] = x;
+    recentY[recentValCounter] = y;
+    recentZ[recentValCounter] = z;
+    recentValCounter++;
+    if(recentValCounter == 5)
+        recentValCounter = 0;
+    int8_t meanX = (recentX[0] + recentX[1] + recentX[2] + recentX[3] + recentX[4]) / 5;
+    int8_t meanY = (recentY[0] + recentY[1] + recentY[2] + recentY[3] + recentY[4]) / 5;
+    int8_t meanZ = (recentZ[0] + recentZ[1] + recentZ[2] + recentZ[3] + recentZ[4]) / 5;
+    x = meanX;
+    y = meanY;
+    z = meanZ;
+    if (x >= -1 && x <= 1
+        && y >= -1 && y <= 1
+        && z >= -1 && z <= 1){
         x = y = z = 0;
     }
 }
