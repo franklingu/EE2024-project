@@ -31,15 +31,15 @@ typedef enum {
 
 // TODO: config const later for proper functioning
 static const int TicksInOneSecond = 1000;
-static const int SensorOperatingTimeInterval = 25;
+static const int SensorOperatingTimeInterval = 15;
 static const int TemperatureThreshold = 30;
 static const int LuminanceThreshold = 800;
 static const int UnsafeFrequencyLowerBound = 0;
 static const int UnsafeFrequencyUpperBound = 10;
 static const int TimeWindow = 3000;
 
-static uint32_t msTicks = 0;
-static uint32_t luminance;
+uint32_t msTicks = 0;
+uint32_t luminance;
 int8_t x, y, z;
 int8_t x_prev, y_prev, z_prev;
 int32_t xoff, yoff, zoff;
@@ -167,19 +167,28 @@ uint8_t numberToCharUint(int number) {
     return (uint8_t)(number + 48);
 }
 
+void playBuzzer() {
+    GPIO_SetValue(0, 1 << 26);
+    Timer0_us_Wait(2272 / 2);
+    GPIO_ClearValue(0, 1 << 26);
+    Timer0_us_Wait(2272 / 2);
+}
+
 void turnOnWarning() {
-    // TODO: turn on warning
-    rgb_setLeds(RGB_BLUE);
-    oled_putString(30, 40, (uint8_t *)"WARNING", OLED_COLOR_WHITE, OLED_COLOR_BLACK);
+    GPIO_SetValue(2, (1 << 0));
+    oled_putString(30, 40, (uint8_t*)"WARNING", OLED_COLOR_WHITE, OLED_COLOR_BLACK);
     warningOn = 1;
+    pca9532_setLeds(0xffff, 0xffff);
     printf("warning is on\n");
 }
 
 void turnOffWarning() {
     // TODO: turn off warning
-    rgb_setLeds(RGB_GREEN);
+	GPIO_ClearValue( 2, (1<<0));
     oled_putString(30, 40, (uint8_t *)"       ", OLED_COLOR_WHITE, OLED_COLOR_BLACK);
     warningOn = 0;
+    pca9532_setLeds(0x0000, 0xffff);
+    GPIO_ClearValue(0, 1<<26);
     printf("warning is off\n");
 }
 
@@ -195,12 +204,12 @@ void accReadSelfImproved() {
 }
 
 void doCalibration() {
-    GPIO_ClearValue( 2, 0 );
     char oledOutput1[15];
     char oledOutput2[15];
     char oledOutput3[15];
     uint32_t prevCountingTicks = getTicks();
 
+    acc_setMode(ACC_MODE_MEASURE);
     led7seg_setChar('0', FALSE);
     oled_clearScreen(OLED_COLOR_BLACK);
     oled_putString(0, 0, (uint8_t *) "CALIBRATION", OLED_COLOR_WHITE, OLED_COLOR_BLACK);
@@ -223,13 +232,11 @@ void doCalibration() {
 }
 
 void doStandByMode() {
-    // TODO: clear red, next line not working for now
-    GPIO_SetValue( 2, 0);
-
-    oled_clearScreen(OLED_COLOR_BLACK);
     int standByTiming = 5;
     uint32_t prevCountingTicks = getTicks();
 
+    acc_setMode(ACC_MODE_STANDBY);
+    oled_clearScreen(OLED_COLOR_BLACK);
     oled_putString(0, 0, (uint8_t *)"STANDBY", OLED_COLOR_WHITE, OLED_COLOR_BLACK);
     led7seg_setChar(numberToCharUint(standByTiming), FALSE);
     while (currentMode == StandBy) {
@@ -271,16 +278,20 @@ void doActiveMode() {
     uint32_t prevTimingForWarningOff = getTicks();
     uint32_t prevTimingForZAxisRecorded = getTicks();
     uint32_t prevTimingForUnchanging = getTicks();
-    uint8_t countForFrequency = 0;
+    uint32_t countForFrequency = 0;
     int8_t prevZAxisIsNonNegative = (z >= 0);
     int8_t isPrevFrequencySafe = 1;
     int8_t isTimingForWarningOn = 0;
     float frequency;
 
+    acc_setMode(ACC_MODE_MEASURE);
     oled_clearScreen(OLED_COLOR_BLACK);
     led7seg_setChar('0', FALSE);
     oled_putString(0, 0, (uint8_t *)"ACTIVE", OLED_COLOR_WHITE, OLED_COLOR_BLACK);
     while (currentMode == Active) {
+    	if (warningOn) {
+    		playBuzzer();
+    	}
         if (getTicks() - prevCountingTicks >= SensorOperatingTimeInterval) {
             float temperature = temp_read() / 10.0;
             uint8_t isRisky = (luminance >= LuminanceThreshold);
@@ -300,22 +311,30 @@ void doActiveMode() {
                  oled_putString(0, 20, (uint8_t *)"NORMAL", OLED_COLOR_WHITE, OLED_COLOR_BLACK);
             }
             accReadSelfImproved();
-            printf("Acc Z in active: %d\n", z);
             if ((prevZAxisIsNonNegative && z < 0) || (!prevZAxisIsNonNegative && z >= 0)) {
                 prevZAxisIsNonNegative = !prevZAxisIsNonNegative;
                 countForFrequency++;
                 if (countForFrequency % 2 == 0) {
                     frequency = (float)TicksInOneSecond / (getTicks() - prevTimingForZAxisRecorded);
+                    printf("frequency detected : %f\n", frequency);
                     prevTimingForZAxisRecorded = getTicks();
 
                     if ((frequency < UnsafeFrequencyLowerBound || frequency > UnsafeFrequencyUpperBound) && !isPrevFrequencySafe) {
                         isTimingForWarningOn = 0;
                         prevTimingForWarningOff = getTicks();
+                        prevTimingForWarningOn = getTicks();
                         isPrevFrequencySafe = 1;
                     } else if ((frequency >= UnsafeFrequencyLowerBound && frequency <= UnsafeFrequencyUpperBound) && isPrevFrequencySafe) {
                         isTimingForWarningOn = 1;
+                        prevTimingForWarningOff = getTicks();
                         prevTimingForWarningOn = getTicks();
                         isPrevFrequencySafe = 0;
+                    } else if ((frequency < UnsafeFrequencyLowerBound || frequency > UnsafeFrequencyUpperBound) && !isPrevFrequencySafe) {
+                    	isTimingForWarningOn = 0;
+                    	prevTimingForWarningOn = getTicks();
+                    } else if ((frequency < UnsafeFrequencyLowerBound || frequency > UnsafeFrequencyUpperBound) && isPrevFrequencySafe) {
+                    	isTimingForWarningOn = 1;
+                    	prevTimingForWarningOff = getTicks();
                     }
                     if (!warningOn &&
                             isTimingForWarningOn && (getTicks() - prevTimingForWarningOn > TimeWindow)) {
@@ -333,13 +352,13 @@ void doActiveMode() {
                 }
                 prevTimingForUnchanging = getTicks();
             } else {
-                if (getTicks() - prevTimingForUnchanging >= TimeWindow) {
-                    turnOffWarning();
-                    isTimingForWarningOn = 0;
-                    isPrevFrequencySafe = 1;
-                    prevTimingForWarningOff = getTicks();
-                    prevTimingForUnchanging = getTicks();
-                }
+            	if (getTicks() - prevTimingForUnchanging >= TimeWindow) {
+            		turnOffWarning();
+            		isTimingForWarningOn = 0;
+            		isPrevFrequencySafe = 1;
+            		prevTimingForWarningOff = getTicks();
+            		prevTimingForUnchanging = getTicks();
+            	}
             }
             prevCountingTicks = getTicks();
         }
@@ -353,6 +372,7 @@ void doActiveMode() {
 void all_init() {
     i2c_init();
     ssp_init();
+
     resetBtn_init();
     calibratedBtn_init();
 
@@ -360,8 +380,15 @@ void all_init() {
     led7seg_init();
     acc_init();
     oled_init();
-    rgb_init();
+
+    // GPIO settings generally
+    GPIO_SetDir( 2, (1<<0), 1 );
     GPIO_SetDir( 2, 0, 0 );
+    GPIO_SetDir(2, 1<<1, 1);
+    GPIO_SetDir(0, 1<<27, 1);
+    GPIO_SetDir(0, 1<<28, 1);
+    GPIO_SetDir(2, 1<<13, 1);
+    GPIO_SetDir(0, 1<<26, 1);
 
     GPIO_ClearValue(0, 1<<27); //LM4811-clk
     GPIO_ClearValue(0, 1<<28); //LM4811-up/dn
@@ -424,7 +451,6 @@ void EINT3_IRQHandler(void){
 
 int main (void) {
     all_init();
-    currentMode = Active;
     while (1) {
         if (currentMode == Calibration) {
             doCalibration();
@@ -439,3 +465,4 @@ int main (void) {
         }
     }
 }
+
