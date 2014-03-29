@@ -34,10 +34,11 @@ static const int TicksInOneSecond = 1000;
 static const int SensorOperatingTimeInterval = 15;
 static const int TemperatureThreshold = 30;
 static const int LuminanceThreshold = 800;
-static const int UnsafeFrequencyLowerBound = 0;
-static const int UnsafeFrequencyUpperBound = 10;
 static const int TimeWindow = 3000;
+static const int ReportingTime = 1000;
 
+int UnsafeFrequencyLowerBound = 1;
+int UnsafeFrequencyUpperBound = 10;
 uint32_t msTicks = 0;
 uint32_t luminance;
 int8_t x, y, z;
@@ -177,9 +178,9 @@ uint8_t numberToCharUint(int number) {
 
 void playBuzzer() {
     GPIO_SetValue(0, 1 << 26);
-    Timer0_us_Wait(2272 / 2);
+    Timer0_us_Wait(1000 / 2);
     GPIO_ClearValue(0, 1 << 26);
-    Timer0_us_Wait(2272 / 2);
+    Timer0_us_Wait(1000 / 2);
 }
 
 void turnOnWarning() {
@@ -191,7 +192,6 @@ void turnOnWarning() {
 }
 
 void turnOffWarning() {
-    // TODO: turn off warning
     GPIO_ClearValue( 2, (1<<0));
     oled_putString(30, 40, (uint8_t *)"       ", OLED_COLOR_WHITE, OLED_COLOR_BLACK);
     warningOn = 0;
@@ -281,16 +281,11 @@ void doStandByMode() {
 
 void doActiveMode() {
     uint32_t prevCountingTicks = getTicks();
-    uint32_t prevPCTimingTicks = getTicks();
+    uint32_t prevPCReportingTicks = getTicks();
     uint32_t prevTimingForWarningOn = getTicks();
     uint32_t prevTimingForWarningOff = getTicks();
-    uint32_t prevTimingForZAxisRecorded = getTicks();
-    uint32_t prevTimingForUnchanging = getTicks();
     uint32_t countForFrequency = 0;
-    int8_t prevZAxisIsNonNegative = (z >= 0);
-    int8_t isPrevFrequencySafe = 1;
     int8_t isTimingForWarningOn = 0;
-    float frequency;
 
     acc_setMode(ACC_MODE_MEASURE);
     oled_clearScreen(OLED_COLOR_BLACK);
@@ -298,6 +293,7 @@ void doActiveMode() {
     oled_putString(0, 0, (uint8_t *)"ACTIVE", OLED_COLOR_WHITE, OLED_COLOR_BLACK);
     while (currentMode == Active) {
         if (warningOn) {
+            // TODO: continuous buzzer
             playBuzzer();
         }
         if (getTicks() - prevCountingTicks >= SensorOperatingTimeInterval) {
@@ -319,61 +315,37 @@ void doActiveMode() {
                  oled_putString(0, 20, (uint8_t *)"NORMAL", OLED_COLOR_WHITE, OLED_COLOR_BLACK);
             }
             accReadSelfImproved();
-            if ((prevZAxisIsNonNegative && z < 0) || (!prevZAxisIsNonNegative && z >= 0)) {
-                prevZAxisIsNonNegative = !prevZAxisIsNonNegative;
+            if ((z < 0 && z_prev >= 0) || (z >= 0 && z_prev < 0)) {
                 countForFrequency++;
-                if (countForFrequency % 2 == 0) {
-                    frequency = (float)TicksInOneSecond / (getTicks() - prevTimingForZAxisRecorded);
-                    printf("frequency detected : %f\n", frequency);
-                    prevTimingForZAxisRecorded = getTicks();
-
-                    if ((frequency < UnsafeFrequencyLowerBound || frequency > UnsafeFrequencyUpperBound) && !isPrevFrequencySafe) {
-                        isTimingForWarningOn = 0;
-                        prevTimingForWarningOff = getTicks();
-                        prevTimingForWarningOn = getTicks();
-                        isPrevFrequencySafe = 1;
-                    } else if ((frequency >= UnsafeFrequencyLowerBound && frequency <= UnsafeFrequencyUpperBound) && isPrevFrequencySafe) {
-                        isTimingForWarningOn = 1;
-                        prevTimingForWarningOff = getTicks();
-                        prevTimingForWarningOn = getTicks();
-                        isPrevFrequencySafe = 0;
-                    } else if ((frequency < UnsafeFrequencyLowerBound || frequency > UnsafeFrequencyUpperBound) && isPrevFrequencySafe) {
-                        isTimingForWarningOn = 0;
-                        prevTimingForWarningOn = getTicks();
-                   } else if ((frequency >= UnsafeFrequencyLowerBound || frequency <= UnsafeFrequencyUpperBound) && !isPrevFrequencySafe) {
-                        isTimingForWarningOn = 1;
-                        prevTimingForWarningOff = getTicks();
-                    }
-                    if (!warningOn &&
-                            isTimingForWarningOn && (getTicks() - prevTimingForWarningOn > TimeWindow)) {
-                        turnOnWarning();
-                        isTimingForWarningOn = 0;
-                        prevTimingForWarningOff = getTicks();
-                        prevTimingForWarningOn = getTicks();
-                    } else if (warningOn &&
-                            !isTimingForWarningOn && (getTicks() - prevTimingForWarningOff > TimeWindow)) {
-                        turnOffWarning();
-                        isTimingForWarningOn = 1;
-                        prevTimingForWarningOn = getTicks();
-                        prevTimingForWarningOff = getTicks();
-                    }
-                }
-                prevTimingForUnchanging = getTicks();
-            } else {
-                if (getTicks() - prevTimingForUnchanging >= TimeWindow) {
-                    printf("unchanging: ");
-                    turnOffWarning();
-                    isTimingForWarningOn = 0;
-                    isPrevFrequencySafe = 1;
-                    prevTimingForWarningOff = getTicks();
-                    prevTimingForUnchanging = getTicks();
-                }
             }
+
             prevCountingTicks = getTicks();
         }
-        if (getTicks() - prevPCTimingTicks >= TicksInOneSecond) {
+        if (getTicks() - prevPCReportingTicks >= ReportingTime) {
             // TODO: report to PC using UART
-            prevPCTimingTicks = getTicks();
+
+            printf("frequency: %d\n", (int)countForFrequency / 2);
+            if (countForFrequency / 2 >= UnsafeFrequencyLowerBound && countForFrequency / 2 <= UnsafeFrequencyUpperBound) {
+                if (isTimingForWarningOn) {
+                    if (getTicks() - prevTimingForWarningOn >= TimeWindow) {
+                        turnOnWarning();
+                    }
+                } else {
+                    prevTimingForWarningOn = getTicks() - ReportingTime;
+                    isTimingForWarningOn = 1;
+                }
+            } else {
+                if (isTimingForWarningOn) {
+                    prevTimingForWarningOff = getTicks() - ReportingTime;
+                    isTimingForWarningOn = 0;
+                } else {
+                    if (getTicks() - prevTimingForWarningOff >= TimeWindow) {
+                        turnOffWarning();
+                    }
+                }
+            }
+            countForFrequency = 0;
+            prevPCReportingTicks = getTicks();
         }
     }
     turnOffWarning();
