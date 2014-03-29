@@ -188,7 +188,6 @@ void turnOnWarning() {
     oled_putString(30, 40, (uint8_t*)"WARNING", OLED_COLOR_WHITE, OLED_COLOR_BLACK);
     warningOn = 1;
     pca9532_setLeds(0xffff, 0xffff);
-    printf("warning is on\n");
 }
 
 void turnOffWarning() {
@@ -197,7 +196,6 @@ void turnOffWarning() {
     warningOn = 0;
     pca9532_setLeds(0x0000, 0xffff);
     GPIO_ClearValue(0, 1<<26);
-    printf("warning is off\n");
 }
 
 void accReadSelfImproved() {
@@ -286,35 +284,45 @@ void doActiveMode() {
     uint32_t prevTimingForWarningOff = getTicks();
     uint32_t countForFrequency = 0;
     int8_t isTimingForWarningOn = 0;
+    float temperature = temp_read() / 10.0;
+    uint8_t isRisky = (luminance >= LuminanceThreshold);
+    uint8_t isHot = (temperature >= TemperatureThreshold);
 
     acc_setMode(ACC_MODE_MEASURE);
     oled_clearScreen(OLED_COLOR_BLACK);
     led7seg_setChar('0', FALSE);
     oled_putString(0, 0, (uint8_t *)"ACTIVE", OLED_COLOR_WHITE, OLED_COLOR_BLACK);
+    if (isRisky) {
+         oled_putString(0, 10, (uint8_t *)"RISKY", OLED_COLOR_WHITE, OLED_COLOR_BLACK);
+     } else {
+         oled_putString(0, 10, (uint8_t *)"SAFE ", OLED_COLOR_WHITE, OLED_COLOR_BLACK);
+     }
+     if (isHot) {
+         oled_putString(0, 20, (uint8_t *)"HOT   ", OLED_COLOR_WHITE, OLED_COLOR_BLACK);
+     } else {
+         oled_putString(0, 20, (uint8_t *)"NORMAL", OLED_COLOR_WHITE, OLED_COLOR_BLACK);
+     }
     while (currentMode == Active) {
         if (warningOn) {
             // TODO: continuous buzzer
             playBuzzer();
         }
         if (getTicks() - prevCountingTicks >= SensorOperatingTimeInterval) {
-            float temperature = temp_read() / 10.0;
-            uint8_t isRisky = (luminance >= LuminanceThreshold);
-            uint8_t isHot = (temperature >= TemperatureThreshold);
+            temperature = temp_read() / 10.0;
+            isRisky = (luminance >= LuminanceThreshold);
+            isHot = (temperature >= TemperatureThreshold);
+
             if (isRisky || isHot) {
                 currentMode = StandBy;
                 break;
             }
-            if (isRisky) {
-                 oled_putString(0, 10, (uint8_t *)"RISKY", OLED_COLOR_WHITE, OLED_COLOR_BLACK);
-            } else {
-                 oled_putString(0, 10, (uint8_t *)"SAFE ", OLED_COLOR_WHITE, OLED_COLOR_BLACK);
-            }
-            if (isHot) {
-                 oled_putString(0, 20, (uint8_t *)"HOT   ", OLED_COLOR_WHITE, OLED_COLOR_BLACK);
-            } else {
-                 oled_putString(0, 20, (uint8_t *)"NORMAL", OLED_COLOR_WHITE, OLED_COLOR_BLACK);
-            }
+
             accReadSelfImproved();
+
+            char oledOutput3[15];
+            sprintf(oledOutput3, "     %d   ", z);
+            oled_putString(0, 50, (uint8_t *)oledOutput3, OLED_COLOR_WHITE, OLED_COLOR_BLACK);
+
             if ((z < 0 && z_prev >= 0) || (z >= 0 && z_prev < 0)) {
                 countForFrequency++;
             }
@@ -324,7 +332,6 @@ void doActiveMode() {
         if (getTicks() - prevPCReportingTicks >= ReportingTime) {
             // TODO: report to PC using UART
 
-            printf("frequency: %d\n", (int)countForFrequency / 2);
             if (countForFrequency / 2 >= UnsafeFrequencyLowerBound && countForFrequency / 2 <= UnsafeFrequencyUpperBound) {
                 if (isTimingForWarningOn) {
                     if (getTicks() - prevTimingForWarningOn >= TimeWindow) {
