@@ -225,7 +225,7 @@ void doCalibration() {
             break;
         }
         if (getTicks() - prevCountingTicks >= SensorOperatingTimeInterval) {
-            accReadSelfImproved();
+            acc_read(&x, &y, &z);
             sprintf(oledOutput1, "Acc: %d   ", x);
             sprintf(oledOutput2, "     %d   ", y);
             sprintf(oledOutput3, "     %d   ", z);
