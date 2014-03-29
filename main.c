@@ -192,7 +192,7 @@ void turnOnWarning() {
 
 void turnOffWarning() {
     // TODO: turn off warning
-	GPIO_ClearValue( 2, (1<<0));
+    GPIO_ClearValue( 2, (1<<0));
     oled_putString(30, 40, (uint8_t *)"       ", OLED_COLOR_WHITE, OLED_COLOR_BLACK);
     warningOn = 0;
     pca9532_setLeds(0x0000, 0xffff);
@@ -297,9 +297,9 @@ void doActiveMode() {
     led7seg_setChar('0', FALSE);
     oled_putString(0, 0, (uint8_t *)"ACTIVE", OLED_COLOR_WHITE, OLED_COLOR_BLACK);
     while (currentMode == Active) {
-    	if (warningOn) {
-    		playBuzzer();
-    	}
+        if (warningOn) {
+            playBuzzer();
+        }
         if (getTicks() - prevCountingTicks >= SensorOperatingTimeInterval) {
             float temperature = temp_read() / 10.0;
             uint8_t isRisky = (luminance >= LuminanceThreshold);
@@ -337,12 +337,12 @@ void doActiveMode() {
                         prevTimingForWarningOff = getTicks();
                         prevTimingForWarningOn = getTicks();
                         isPrevFrequencySafe = 0;
-                    } else if ((frequency < UnsafeFrequencyLowerBound || frequency > UnsafeFrequencyUpperBound) && !isPrevFrequencySafe) {
-                    	isTimingForWarningOn = 0;
-                    	prevTimingForWarningOn = getTicks();
                     } else if ((frequency < UnsafeFrequencyLowerBound || frequency > UnsafeFrequencyUpperBound) && isPrevFrequencySafe) {
-                    	isTimingForWarningOn = 1;
-                    	prevTimingForWarningOff = getTicks();
+                        isTimingForWarningOn = 0;
+                        prevTimingForWarningOn = getTicks();
+                   } else if ((frequency >= UnsafeFrequencyLowerBound || frequency <= UnsafeFrequencyUpperBound) && !isPrevFrequencySafe) {
+                        isTimingForWarningOn = 1;
+                        prevTimingForWarningOff = getTicks();
                     }
                     if (!warningOn &&
                             isTimingForWarningOn && (getTicks() - prevTimingForWarningOn > TimeWindow)) {
@@ -360,13 +360,14 @@ void doActiveMode() {
                 }
                 prevTimingForUnchanging = getTicks();
             } else {
-            	if (getTicks() - prevTimingForUnchanging >= TimeWindow) {
-            		turnOffWarning();
-            		isTimingForWarningOn = 0;
-            		isPrevFrequencySafe = 1;
-            		prevTimingForWarningOff = getTicks();
-            		prevTimingForUnchanging = getTicks();
-            	}
+                if (getTicks() - prevTimingForUnchanging >= TimeWindow) {
+                    printf("unchanging: ");
+                    turnOffWarning();
+                    isTimingForWarningOn = 0;
+                    isPrevFrequencySafe = 1;
+                    prevTimingForWarningOff = getTicks();
+                    prevTimingForUnchanging = getTicks();
+                }
             }
             prevCountingTicks = getTicks();
         }
@@ -375,6 +376,7 @@ void doActiveMode() {
             prevPCTimingTicks = getTicks();
         }
     }
+    turnOffWarning();
 }
 
 void all_init() {
