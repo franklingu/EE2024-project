@@ -235,6 +235,9 @@ void doCalibration() {
             prevCountingTicks = getTicks();
         }
     }
+    xoff = 0-x;
+    yoff = 0-y;
+    zoff = 0-z;
 }
 
 void doStandByMode() {
@@ -416,11 +419,6 @@ void all_init() {
     // Enable GPIO Interrupt P0.4 for SW3 (reset button)
     LPC_GPIOINT->IO0IntEnF |= 1 << 4;
     NVIC_EnableIRQ(EINT3_IRQn);
-
-    acc_read(&x, &y, &z);
-    xoff = 0-x;
-    yoff = 0-y;
-    zoff = 0-z;
 }
 
 void EINT3_IRQHandler(void){
