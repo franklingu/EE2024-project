@@ -11,7 +11,7 @@
 #include "lpc17xx_i2c.h"
 #include "lpc17xx_ssp.h"
 #include "lpc17xx_timer.h"
-
+#include "lpc17xx_uart.h"
 #include "led7seg.h"
 #include "joystick.h"
 #include "pca9532.h"
@@ -22,6 +22,146 @@
 #include "rgb.h"
 
 #include <stdio.h>
+#include <string.h>
+
+#define UART_PORT	(LPC_UART_TypeDef *)LPC_UART0   // Select UART1
+uint8_t rev_buf[255];                             // Reception buffer
+uint32_t rev_cnt = 0;                                 // Reception counter
+
+uint32_t isReceived = 0;
+/********************************************************************//**
+ * @brief         UART receive callback function (ring buffer used)
+ * @param[in]    None
+ * @return         None
+ *********************************************************************/
+void UART_IntReceive(void)
+{
+    /* Read the received data */
+    if(UART_Receive(UART_PORT, &rev_buf[rev_cnt], 1, NONE_BLOCKING) == 1) {
+
+        // Echo characters received
+        UART_Send(UART_PORT, &rev_buf[rev_cnt], 1, NONE_BLOCKING);
+        if(rev_buf[rev_cnt] == '\r'){
+        	isReceived = 1;
+        }
+        rev_cnt++;
+        if(rev_cnt == 255) rev_cnt = 0;
+    }
+}
+
+/*********************************************************************//**
+ * @brief    UART1 interrupt handler sub-routine reference, just to call the
+ *                 standard interrupt handler in uart driver
+ * @param    None
+ * @return    None
+ **********************************************************************/
+void UART0_IRQHandler(void)
+{
+    // Call Standard UART 0 interrupt handler
+    UART0_StdIntHandler();
+}
+
+/*********************************************************************//**
+ * @brief    UART1 interrupt handler sub-routine reference, just to call the
+ *                 standard interrupt handler in uart driver
+ * @param    None
+ * @return    None
+ **********************************************************************/
+void UART1_IRQHandler(void)
+{
+    // Call Standard UART 0 interrupt handler
+    UART1_StdIntHandler();
+}
+
+void UART_Receive_Int_Init()
+{
+    // UART Configuration structure variable
+    UART_CFG_Type UARTConfigStruct;
+    // UART FIFO configuration Struct variable
+    UART_FIFO_CFG_Type UARTFIFOConfigStruct;
+    // Pin configuration for UART0
+    PINSEL_CFG_Type PinCfg;
+
+    if((uint32_t)UART_PORT == (uint32_t)LPC_UART0) {
+        /*
+         * Initialize UART0 pin connect
+         */
+        PinCfg.Funcnum = 1;
+        PinCfg.OpenDrain = 0;
+        PinCfg.Pinmode = 0;
+        PinCfg.Pinnum = 2;
+        PinCfg.Portnum = 0;
+        PINSEL_ConfigPin(&PinCfg);
+        PinCfg.Pinnum = 3;
+        PINSEL_ConfigPin(&PinCfg);
+    }
+    else if ((uint32_t)UART_PORT == (uint32_t)LPC_UART1) {
+        /*
+         * Initialize UART1 pin connect
+         */
+        PinCfg.Funcnum = 2;
+        PinCfg.OpenDrain = 0;
+        PinCfg.Pinmode = 0;
+        PinCfg.Pinnum = 0;
+        PinCfg.Portnum = 2;
+        PINSEL_ConfigPin(&PinCfg);
+        PinCfg.Pinnum = 1;
+        PINSEL_ConfigPin(&PinCfg);
+    }
+
+    /* Initialize UART Configuration parameter structure to default state:
+     * Baudrate = 9600bps
+     * 8 data bit
+     * 1 Stop bit
+     * None parity
+     */
+    UART_ConfigStructInit(&UARTConfigStruct);
+
+    /* Set Baudrate to 115200 */
+    UARTConfigStruct.Baud_rate = 115200;
+
+    // Initialize UART0 peripheral with given to corresponding parameter
+    UART_Init(UART_PORT, &UARTConfigStruct);
+
+    /* Initialize FIFOConfigStruct to default state:
+     *                 - FIFO_DMAMode = DISABLE
+     *                 - FIFO_Level = UART_FIFO_TRGLEV0
+     *                 - FIFO_ResetRxBuf = ENABLE
+     *                 - FIFO_ResetTxBuf = ENABLE
+     *                 - FIFO_State = ENABLE
+     */
+    UART_FIFOConfigStructInit(&UARTFIFOConfigStruct);
+
+    // Initialize FIFO for UART0 peripheral
+    UART_FIFOConfig(UART_PORT, &UARTFIFOConfigStruct);
+
+    // Setup callback ---------------
+    // Receive callback
+    UART_SetupCbs(UART_PORT, 0, (void *)UART_IntReceive);
+
+    // Enable UART Transmit
+    UART_TxCmd(UART_PORT, ENABLE);
+
+    /* Enable UART Rx interrupt */
+    UART_IntConfig(UART_PORT, UART_INTCFG_RBR, ENABLE);
+
+    if((uint32_t)UART_PORT == (uint32_t)LPC_UART0) {
+    /* Enable Interrupt for UART0 channel */
+        NVIC_EnableIRQ(UART0_IRQn);
+    }
+    else if ((uint32_t)UART_PORT == (uint32_t)LPC_UART1) {
+        /* Enable Interrupt for UART1 channel */
+        NVIC_EnableIRQ(UART1_IRQn);
+    }
+}
+
+void UART_Send_Message(char* msg){
+	//handling message, eg \0 to \r\n
+	int len = strlen(msg);
+	//msg[len] = '\r';// \0 -> \r
+	//msg[++len] = '\n';// append \n behind
+	UART_Send(UART_PORT, (uint8_t*)msg, (uint32_t)len, BLOCKING);
+}
 
 typedef enum {
     Calibration,
@@ -243,14 +383,19 @@ void doCalibration() {
 void doStandByMode() {
     int standByTiming = 5;
     uint32_t prevCountingTicks = getTicks();
-
+    char msg[255];
     acc_setMode(ACC_MODE_STANDBY);
     oled_clearScreen(OLED_COLOR_BLACK);
     oled_putString(0, 0, (uint8_t *)"STANDBY", OLED_COLOR_WHITE, OLED_COLOR_BLACK);
     led7seg_setChar(numberToCharUint(standByTiming), FALSE);
     while (currentMode == StandBy) {
         if (standByTiming > 0 && getTicks() - prevCountingTicks >= TicksInOneSecond) {
-            // TODO: set up connection to PC
+//        	strcpy(msg, "hello world!");
+//        	UART_Send_Message(msg);
+//        	if(isReceived){
+//        		strcpy(msg, "rcv!");
+//        		UART_Send_Message(msg);
+//        	}
             standByTiming--;
             led7seg_setChar(numberToCharUint(standByTiming), FALSE);
             prevCountingTicks = getTicks();
@@ -419,6 +564,7 @@ void all_init() {
     // Enable GPIO Interrupt P0.4 for SW3 (reset button)
     LPC_GPIOINT->IO0IntEnF |= 1 << 4;
     NVIC_EnableIRQ(EINT3_IRQn);
+    UART_Receive_Int_Init();
 }
 
 void EINT3_IRQHandler(void){
