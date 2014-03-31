@@ -24,7 +24,7 @@
 #include <stdio.h>
 #include <string.h>
 
-#define UART_PORT	(LPC_UART_TypeDef *)LPC_UART0   // Select UART1
+#define UART_PORT	(LPC_UART_TypeDef *)LPC_UART3   // Select UART1
 uint8_t rev_buf[255];                             // Reception buffer
 uint32_t rev_cnt = 0;                                 // Reception counter
 
@@ -95,7 +95,7 @@ void UART_Receive_Int_Init()
         PinCfg.Pinnum = 3;
         PINSEL_ConfigPin(&PinCfg);
     }
-    else if ((uint32_t)UART_PORT == (uint32_t)LPC_UART1) {
+    else if ((uint32_t)UART_PORT == (uint32_t)LPC_UART3) {
         /*
          * Initialize UART1 pin connect
          */
@@ -103,7 +103,7 @@ void UART_Receive_Int_Init()
         PinCfg.OpenDrain = 0;
         PinCfg.Pinmode = 0;
         PinCfg.Pinnum = 0;
-        PinCfg.Portnum = 2;
+        PinCfg.Portnum = 0;
         PINSEL_ConfigPin(&PinCfg);
         PinCfg.Pinnum = 1;
         PINSEL_ConfigPin(&PinCfg);
@@ -149,9 +149,9 @@ void UART_Receive_Int_Init()
     /* Enable Interrupt for UART0 channel */
         NVIC_EnableIRQ(UART0_IRQn);
     }
-    else if ((uint32_t)UART_PORT == (uint32_t)LPC_UART1) {
+    else if ((uint32_t)UART_PORT == (uint32_t)LPC_UART3) {
         /* Enable Interrupt for UART1 channel */
-        NVIC_EnableIRQ(UART1_IRQn);
+        NVIC_EnableIRQ(UART3_IRQn);
     }
 }
 
@@ -390,12 +390,12 @@ void doStandByMode() {
     led7seg_setChar(numberToCharUint(standByTiming), FALSE);
     while (currentMode == StandBy) {
         if (standByTiming > 0 && getTicks() - prevCountingTicks >= TicksInOneSecond) {
-//        	strcpy(msg, "hello world!");
-//        	UART_Send_Message(msg);
-//        	if(isReceived){
-//        		strcpy(msg, "rcv!");
-//        		UART_Send_Message(msg);
-//        	}
+        	strcpy(msg, "hello world!");
+        	UART_Send_Message(msg);
+        	if(isReceived){
+        		strcpy(msg, "rcv!");
+        		UART_Send_Message(msg);
+        	}
             standByTiming--;
             led7seg_setChar(numberToCharUint(standByTiming), FALSE);
             prevCountingTicks = getTicks();
