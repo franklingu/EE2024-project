@@ -67,10 +67,10 @@ void UART0_IRQHandler(void)
  * @param    None
  * @return    None
  **********************************************************************/
-void UART1_IRQHandler(void)
+void UART3_IRQHandler(void)
 {
     // Call Standard UART 0 interrupt handler
-    UART1_StdIntHandler();
+    UART3_StdIntHandler();
 }
 
 void UART_Receive_Int_Init()
@@ -456,7 +456,7 @@ void doActiveMode() {
             playBuzzer();
         }
         if (getTicks() - prevCountingTicks >= SensorOperatingTimeInterval) {
-            temperature = temp_read() / 10.0;
+            //temperature = temp_read() / 10.0;
             isRisky = (luminance >= LuminanceThreshold);
             isHot = (temperature >= TemperatureThreshold);
 
