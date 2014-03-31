@@ -158,8 +158,8 @@ void UART_Receive_Int_Init()
 void UART_Send_Message(char* msg){
 	//handling message, eg \0 to \r\n
 	int len = strlen(msg);
-	//msg[len] = '\r';// \0 -> \r
-	//msg[++len] = '\n';// append \n behind
+	msg[len] = '\r';// \0 -> \r
+	msg[++len] = '\n';// append \n behind
 	UART_Send(UART_PORT, (uint8_t*)msg, (uint32_t)len, BLOCKING);
 }
 
