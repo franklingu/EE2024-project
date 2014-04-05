@@ -313,11 +313,15 @@ void shouldUpdateXYZ(){
     x = meanX;
     y = meanY;
     z = meanZ;
-    if (x >= -1 && x <= 1
-        && y >= -1 && y <= 1
-        && z >= -1 && z <= 1){
-        x = y = z = 0;
-    }
+}
+
+void clearRecentXYZ(){
+	int i;
+	for(i = 0; i < 5; i++){
+		recentX[i] = 0;
+		recentY[i] = 0;
+		recentZ[i] = 0;
+	}
 }
 
 uint8_t numberToCharUint(int number) {
@@ -348,6 +352,9 @@ void accReadSelfImproved() {
     y = y + yoff;
     z = z + zoff;
     shouldUpdateXYZ();
+    if (x >= -1 && x <= 1 && y >= -1 && y <= 1 && z >= -1 && z <= 1) {
+		x = y = z = 0;
+	}
 }
 
 void doCalibration() {
@@ -367,6 +374,7 @@ void doCalibration() {
         }
         if (getTicks() - prevCountingTicks >= SensorOperatingTimeInterval) {
             acc_read(&x, &y, &z);
+            shouldUpdateXYZ();
             sprintf(oledOutput1, "Acc: %d   ", x);
             sprintf(oledOutput2, "     %d   ", y);
             sprintf(oledOutput3, "     %d   ", z);
@@ -376,6 +384,7 @@ void doCalibration() {
             prevCountingTicks = getTicks();
         }
     }
+    clearRecentXYZ();
     xoff = 0-x;
     yoff = 0-y;
     zoff = 0-z;
