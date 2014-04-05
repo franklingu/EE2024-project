@@ -24,7 +24,7 @@
 #include <stdio.h>
 #include <string.h>
 
-#define UART_PORT	(LPC_UART_TypeDef *)LPC_UART3   // Select UART1
+#define UART_PORT   (LPC_UART_TypeDef *)LPC_UART3   // Select UART1
 uint8_t rev_buf[255];                             // Reception buffer
 uint32_t rev_cnt = 0;                                 // Reception counter
 
@@ -39,7 +39,7 @@ void UART_IntReceive(void)
     /* Read the received data */
     if(UART_Receive(UART_PORT, &rev_buf[rev_cnt], 1, NONE_BLOCKING) == 1) {
         if(rev_buf[rev_cnt] == '\r'){
-        	isReceived = 1;
+            isReceived = 1;
         }
         rev_cnt++;
         if(rev_cnt == 255) rev_cnt = 0;
@@ -153,11 +153,11 @@ void UART_Receive_Int_Init()
 }
 
 void UART_Send_Message(char* msg){
-	//handling message, eg \0 to \r\n
-	int len = strlen(msg);
-	msg[len] = '\r';// \0 -> \r
-	msg[++len] = '\n';// append \n behind
-	UART_Send(UART_PORT, (uint8_t*)msg, (uint32_t)len, BLOCKING);
+    //handling message, eg \0 to \r\n
+    int len = strlen(msg);
+    msg[len] = '\r';// \0 -> \r
+    msg[++len] = '\n';// append \n behind
+    UART_Send(UART_PORT, (uint8_t*)msg, (uint32_t)len, BLOCKING);
 }
 
 typedef enum {
@@ -166,17 +166,18 @@ typedef enum {
     Active,
 } MachineMode;
 
-// TODO: config const later for proper functioning
 static const int TicksInOneSecond = 1000;
 static const int SensorOperatingTimeInterval = 20;
 static const int TemperatureThreshold = 30;
 static const int LuminanceThreshold = 800;
 static const int TimeWindow = 3000;
 static const int ReportingTime = 1000;
+static const int UnsafeFrequencyLowestBound = 0;
+static const int UnsafeFrequencyHighestBound = 25;
 
 MachineMode currentMode = Calibration;
-int UnsafeFrequencyLowerBound = 2;
-int UnsafeFrequencyUpperBound = 10;
+int unsafeFrequencyLowerBound = 2;
+int unsafeFrequencyHigherBound = 10;
 uint32_t msTicks = 0;
 uint32_t luminance;
 int8_t x, y, z;
@@ -381,8 +382,8 @@ void doCalibration() {
 }
 
 void UART_RcvMsgHandling(){
-	rev_buf[rev_cnt-1] = '\0';
-	rev_cnt = 0;
+    rev_buf[rev_cnt-1] = '\0';
+    rev_cnt = 0;
 }
 
 void doStandByMode() {
@@ -400,52 +401,51 @@ void doStandByMode() {
     led7seg_setChar(numberToCharUint(standByTiming), FALSE);
     while (currentMode == StandBy) {
         if (getTicks() - prevPCReportingTicks >= TicksInOneSecond) {
-        	//UART handling in StandBy
-        	if(isReceived){
-        		isReceived = 0;
-        		UART_RcvMsgHandling();
+            //UART handling in StandBy
+            if(isReceived){
+                isReceived = 0;
+                UART_RcvMsgHandling();
 
-        		if(!isHandshakeEstablished && strcmp(rev_buf, "RNACK") == 0){
-        			isReadyMsgSent = 0;
-        		} else if(!isHandshakeEstablished && strcmp(rev_buf, "RACK") == 0){
-        			strcpy(msg, "HSHK 056");
-        			UART_Send_Message(msg);
-        			isHandshakeEstablished = 1;
-        		}
+                if(!isHandshakeEstablished && strcmp(rev_buf, "RNACK") == 0){
+                    isReadyMsgSent = 0;
+                } else if(!isHandshakeEstablished && strcmp(rev_buf, "RACK") == 0){
+                    strcpy(msg, "HSHK 056");
+                    UART_Send_Message(msg);
+                    isHandshakeEstablished = 1;
+                }
 
-        		if(isHandshakeEstablished && strcmp(rev_buf, "RSTC") == 0){
-        			strcpy(msg, "CACK");
-        			UART_Send_Message(msg);
-        			currentMode = Calibration;
-        			break;
-        		}
-        	}
-        	if(!isHandshakeEstablished){
-        		if(!isReadyMsgSent){
-        			strcpy(msg, "RDY 056");
-        			UART_Send_Message(msg);
-        			isReadyMsgSent = 1;
-        		} else{
-        			UART_waitTime++;
-        			if(UART_waitTime == 5){
-        				UART_waitTime = 0;
-        				strcpy(msg, "RDY 056");
-        				UART_Send_Message(msg);
-        			}
-        		}
-        	}
-        	if(standByTiming > 0){
-        		standByTiming--;
-        		led7seg_setChar(numberToCharUint(standByTiming), FALSE);
-        	}
-        	prevPCReportingTicks = getTicks();
+                if(isHandshakeEstablished && strcmp(rev_buf, "RSTC") == 0){
+                    strcpy(msg, "CACK");
+                    UART_Send_Message(msg);
+                    currentMode = Calibration;
+                    break;
+                }
+            }
+            if(!isHandshakeEstablished){
+                if(!isReadyMsgSent){
+                    strcpy(msg, "RDY 056");
+                    UART_Send_Message(msg);
+                    isReadyMsgSent = 1;
+                } else{
+                    UART_waitTime++;
+                    if(UART_waitTime == 5){
+                        UART_waitTime = 0;
+                        strcpy(msg, "RDY 056");
+                        UART_Send_Message(msg);
+                    }
+                }
+            }
+            if(standByTiming > 0){
+                standByTiming--;
+                led7seg_setChar(numberToCharUint(standByTiming), FALSE);
+            }
+            prevPCReportingTicks = getTicks();
         }
         if (standByTiming == 0 && getTicks() - prevCountingTicks >= SensorOperatingTimeInterval) {
             float temperature = temp_read() / 10.0;
             uint8_t isRisky = (luminance >= LuminanceThreshold);
             uint8_t isHot = (temperature >= TemperatureThreshold);
 
-            // TODO: if conditions met, go to the active mode
             if (!isRisky && !isHot && isHandshakeEstablished) {
                 currentMode = Active;
                 break;
@@ -493,7 +493,7 @@ void doActiveMode() {
      } else {
          oled_putString(0, 20, (uint8_t *)"NORMAL", OLED_COLOR_WHITE, OLED_COLOR_BLACK);
      }
-     sprintf(freqString, "Low: %d; Upp: %d  ", UnsafeFrequencyLowerBound, UnsafeFrequencyUpperBound);
+     sprintf(freqString, "Low: %d; Upp: %d", unsafeFrequencyLowerBound, unsafeFrequencyHigherBound);
      oled_putString(0, 50, (uint8_t *)freqString, OLED_COLOR_WHITE, OLED_COLOR_BLACK);
     while (currentMode == Active) {
         if (getTicks() - prevCountingTicks >= SensorOperatingTimeInterval) {
@@ -513,58 +513,57 @@ void doActiveMode() {
             joystickStatus = joystick_read();
             if (joystickStatus == JOYSTICK_CENTER) {
                 // nothing
-            } else if (joystickStatus == JOYSTICK_UP) {
-                UnsafeFrequencyUpperBound++;
-                sprintf(freqString, "Low: %d; Upp: %d  ", UnsafeFrequencyLowerBound, UnsafeFrequencyUpperBound);
+            } else if (joystickStatus == JOYSTICK_UP && unsafeFrequencyHigherBound < UnsafeFrequencyHighestBound) {
+                unsafeFrequencyHigherBound++;
+                sprintf(freqString, "Low: %d; Upp: %d", unsafeFrequencyLowerBound, unsafeFrequencyHigherBound);
                 oled_putString(0, 50, (uint8_t *)freqString, OLED_COLOR_WHITE, OLED_COLOR_BLACK);
-            } else if (joystickStatus == JOYSTICK_DOWN && UnsafeFrequencyUpperBound > UnsafeFrequencyLowerBound + 1) {
-                UnsafeFrequencyUpperBound--;
-                sprintf(freqString, "Low: %d; Upp: %d  ", UnsafeFrequencyLowerBound, UnsafeFrequencyUpperBound);
+            } else if (joystickStatus == JOYSTICK_DOWN && unsafeFrequencyHigherBound > unsafeFrequencyLowerBound + 1) {
+                unsafeFrequencyHigherBound--;
+                sprintf(freqString, "Low: %d; Upp: %d", unsafeFrequencyLowerBound, unsafeFrequencyHigherBound);
                 oled_putString(0, 50, (uint8_t *)freqString, OLED_COLOR_WHITE, OLED_COLOR_BLACK);
-            } else if (joystickStatus == JOYSTICK_LEFT && UnsafeFrequencyLowerBound > 0) {
-                UnsafeFrequencyLowerBound--;
-                sprintf(freqString, "Low: %d; Upp: %d  ", UnsafeFrequencyLowerBound, UnsafeFrequencyUpperBound);
+            } else if (joystickStatus == JOYSTICK_LEFT && unsafeFrequencyLowerBound > UnsafeFrequencyLowestBound) {
+                unsafeFrequencyLowerBound--;
+                sprintf(freqString, "Low: %d; Upp: %d", unsafeFrequencyLowerBound, unsafeFrequencyHigherBound);
                 oled_putString(0, 50, (uint8_t *)freqString, OLED_COLOR_WHITE, OLED_COLOR_BLACK);
-            } else if (joystickStatus == JOYSTICK_RIGHT && UnsafeFrequencyUpperBound > UnsafeFrequencyLowerBound + 1) {
-                UnsafeFrequencyLowerBound++;
-                sprintf(freqString, "Low: %d; Upp: %d  ", UnsafeFrequencyLowerBound, UnsafeFrequencyUpperBound);
+            } else if (joystickStatus == JOYSTICK_RIGHT && unsafeFrequencyHigherBound > unsafeFrequencyLowerBound + 1) {
+                unsafeFrequencyLowerBound++;
+                sprintf(freqString, "Low: %d; Upp: %d", unsafeFrequencyLowerBound, unsafeFrequencyHigherBound);
                 oled_putString(0, 50, (uint8_t *)freqString, OLED_COLOR_WHITE, OLED_COLOR_BLACK);
-            } 
+            }
 
             prevCountingTicks = getTicks();
         }
         if (getTicks() - prevPCReportingTicks >= ReportingTime) {
-            // TODO: report to PC using UART
             temperature = temp_read() / 10.0;
             isHot = (temperature >= TemperatureThreshold);
 
             //UART handling in Active
-			if (isReceived) {
-				isReceived = 0;
-				UART_RcvMsgHandling();
+            if (isReceived) {
+                isReceived = 0;
+                UART_RcvMsgHandling();
 
-				if (strcmp(rev_buf, "RSTC") == 0) {
-					strcpy(msg, "CACK");
-					UART_Send_Message(msg);
-					currentMode = Calibration;
-					break;
-				} else if(strcmp(rev_buf, "RSTS") == 0){
-					strcpy(msg, "SACK");
-					UART_Send_Message(msg);
-					currentMode = StandBy;
-					break;
-				}
-			}
-			char reportContent[255];
-			char warningContent[255];
-			if(warningOn)
-				strcpy(warningContent, "WARNING");
-			else
-				strcpy(warningContent, "");
-			sprintf(reportContent, "REPT 056 %02d %s", countForFrequency / 2, warningContent);
-			UART_Send_Message(reportContent);
+                if (strcmp(rev_buf, "RSTC") == 0) {
+                    strcpy(msg, "CACK");
+                    UART_Send_Message(msg);
+                    currentMode = Calibration;
+                    break;
+                } else if(strcmp(rev_buf, "RSTS") == 0){
+                    strcpy(msg, "SACK");
+                    UART_Send_Message(msg);
+                    currentMode = StandBy;
+                    break;
+                }
+            }
+            char reportContent[255];
+            char warningContent[255];
+            if(warningOn)
+                strcpy(warningContent, "WARNING");
+            else
+                strcpy(warningContent, "");
+            sprintf(reportContent, "REPT 056 %02d %s", countForFrequency / 2, warningContent);
+            UART_Send_Message(reportContent);
 
-            if (countForFrequency / 2 >= UnsafeFrequencyLowerBound && countForFrequency / 2 <= UnsafeFrequencyUpperBound) {
+            if (countForFrequency / 2 >= unsafeFrequencyLowerBound && countForFrequency / 2 <= unsafeFrequencyHigherBound) {
                 if (isTimingForWarningOn) {
                     if (getTicks() - prevTimingForWarningOn >= TimeWindow) {
                         turnOnWarning();
@@ -650,6 +649,7 @@ void all_init() {
     LPC_GPIOINT->IO0IntEnF |= 1 << 4;
     NVIC_EnableIRQ(EINT3_IRQn);
     UART_Receive_Int_Init();
+    // TODO: set up interrupt priority
 }
 
 void EINT3_IRQHandler(void){
@@ -683,4 +683,3 @@ int main (void) {
         }
     }
 }
-
