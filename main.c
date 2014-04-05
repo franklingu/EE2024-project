@@ -430,11 +430,13 @@ void doActiveMode() {
     uint32_t prevPCReportingTicks = getTicks();
     uint32_t prevTimingForWarningOn = getTicks();
     uint32_t prevTimingForWarningOff = getTicks();
+    uint32_t prevBuzzerTiming = getTicks();
     uint32_t countForFrequency = 0;
     int8_t isTimingForWarningOn = 0;
     float temperature = temp_read() / 10.0;
     uint8_t isRisky = (luminance >= LuminanceThreshold);
     uint8_t isHot = (temperature >= TemperatureThreshold);
+    uint8_t isBuzzerSet = 0;
 
     acc_setMode(ACC_MODE_MEASURE);
     oled_clearScreen(OLED_COLOR_BLACK);
@@ -451,14 +453,21 @@ void doActiveMode() {
          oled_putString(0, 20, (uint8_t *)"NORMAL", OLED_COLOR_WHITE, OLED_COLOR_BLACK);
      }
     while (currentMode == Active) {
+                // TODO: continuous buzzer
         if (warningOn) {
-            // TODO: continuous buzzer
-            playBuzzer();
+            if (!isBuzzerSet && getTicks() - prevBuzzerTiming > 1) {
+                GPIO_SetValue(0, 1 << 26);
+                prevBuzzerTiming = getTicks();
+                isBuzzerSet = !isBuzzerSet;
+            } else if (isBuzzerSet && getTicks() - prevBuzzerTiming > 1) {
+                GPIO_ClearValue(0, 1 << 26);
+                prevBuzzerTiming = getTicks();
+                isBuzzerSet = !isBuzzerSet;
+            }
         }
+
         if (getTicks() - prevCountingTicks >= SensorOperatingTimeInterval) {
-            //temperature = temp_read() / 10.0;
             isRisky = (luminance >= LuminanceThreshold);
-            isHot = (temperature >= TemperatureThreshold);
 
             if (isRisky || isHot) {
                 currentMode = StandBy;
@@ -466,10 +475,6 @@ void doActiveMode() {
             }
 
             accReadSelfImproved();
-
-            char oledOutput3[15];
-            sprintf(oledOutput3, "     %d   ", z);
-            oled_putString(0, 50, (uint8_t *)oledOutput3, OLED_COLOR_WHITE, OLED_COLOR_BLACK);
 
             if ((z < 0 && z_prev >= 0) || (z >= 0 && z_prev < 0)) {
                 countForFrequency++;
@@ -479,6 +484,9 @@ void doActiveMode() {
         }
         if (getTicks() - prevPCReportingTicks >= ReportingTime) {
             // TODO: report to PC using UART
+            temperature = temp_read() / 10.0;
+            isHot = (temperature >= TemperatureThreshold);
+
 
             if (countForFrequency / 2 >= UnsafeFrequencyLowerBound && countForFrequency / 2 <= UnsafeFrequencyUpperBound) {
                 if (isTimingForWarningOn) {
