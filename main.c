@@ -24,7 +24,7 @@
 #include <stdio.h>
 #include <string.h>
 
-#define UART_PORT   (LPC_UART_TypeDef *)LPC_UART3   // Select UART1
+#define UART_PORT	(LPC_UART_TypeDef *)LPC_UART3   // Select UART1
 uint8_t rev_buf[255];                             // Reception buffer
 uint32_t rev_cnt = 0;                                 // Reception counter
 
@@ -38,11 +38,8 @@ void UART_IntReceive(void)
 {
     /* Read the received data */
     if(UART_Receive(UART_PORT, &rev_buf[rev_cnt], 1, NONE_BLOCKING) == 1) {
-
-        // Echo characters received
-        UART_Send(UART_PORT, &rev_buf[rev_cnt], 1, NONE_BLOCKING);
         if(rev_buf[rev_cnt] == '\r'){
-            isReceived = 1;
+        	isReceived = 1;
         }
         rev_cnt++;
         if(rev_cnt == 255) rev_cnt = 0;
@@ -155,12 +152,12 @@ void UART_Receive_Int_Init()
     }
 }
 
-void UART_Send_Message(char* msg) {
-    //handling message, eg \0 to \r\n
-    int len = strlen(msg);
-    msg[len] = '\r';// \0 -> \r
-    msg[++len] = '\n';// append \n behind
-    UART_Send(UART_PORT, (uint8_t*)msg, (uint32_t)len, BLOCKING);
+void UART_Send_Message(char* msg){
+	//handling message, eg \0 to \r\n
+	int len = strlen(msg);
+	msg[len] = '\r';// \0 -> \r
+	msg[++len] = '\n';// append \n behind
+	UART_Send(UART_PORT, (uint8_t*)msg, (uint32_t)len, BLOCKING);
 }
 
 typedef enum {
@@ -383,25 +380,65 @@ void doCalibration() {
     zoff = 0-z;
 }
 
+void UART_RcvMsgHandling(){
+	rev_buf[rev_cnt-1] = '\0';
+	rev_cnt = 0;
+}
+
 void doStandByMode() {
     int standByTiming = 5;
     uint32_t prevCountingTicks = getTicks();
+    uint32_t prevPCReportingTicks = getTicks();
     char msg[255];
+    int isHandshakeEstablished = 0;
+    int isReadyMsgSent = 0;
+    int UART_waitTime = 0;
+
     acc_setMode(ACC_MODE_STANDBY);
     oled_clearScreen(OLED_COLOR_BLACK);
     oled_putString(0, 0, (uint8_t *)"STANDBY", OLED_COLOR_WHITE, OLED_COLOR_BLACK);
     led7seg_setChar(numberToCharUint(standByTiming), FALSE);
     while (currentMode == StandBy) {
-        if (standByTiming > 0 && getTicks() - prevCountingTicks >= TicksInOneSecond) {
-            strcpy(msg, "hello world!");
-            UART_Send_Message(msg);
-            if(isReceived){
-                strcpy(msg, "rcv!");
-                UART_Send_Message(msg);
-            }
-            standByTiming--;
-            led7seg_setChar(numberToCharUint(standByTiming), FALSE);
-            prevCountingTicks = getTicks();
+        if (getTicks() - prevPCReportingTicks >= TicksInOneSecond) {
+        	//UART handling in StandBy
+        	if(isReceived){
+        		isReceived = 0;
+        		UART_RcvMsgHandling();
+
+        		if(!isHandshakeEstablished && strcmp(rev_buf, "RNACK") == 0){
+        			isReadyMsgSent = 0;
+        		} else if(!isHandshakeEstablished && strcmp(rev_buf, "RACK") == 0){
+        			strcpy(msg, "HSHK 056");
+        			UART_Send_Message(msg);
+        			isHandshakeEstablished = 1;
+        		}
+
+        		if(isHandshakeEstablished && strcmp(rev_buf, "RSTC") == 0){
+        			strcpy(msg, "CACK");
+        			UART_Send_Message(msg);
+        			currentMode = Calibration;
+        			break;
+        		}
+        	}
+        	if(!isHandshakeEstablished){
+        		if(!isReadyMsgSent){
+        			strcpy(msg, "RDY 056");
+        			UART_Send_Message(msg);
+        			isReadyMsgSent = 1;
+        		} else{
+        			UART_waitTime++;
+        			if(UART_waitTime == 5){
+        				UART_waitTime = 0;
+        				strcpy(msg, "RDY 056");
+        				UART_Send_Message(msg);
+        			}
+        		}
+        	}
+        	if(standByTiming > 0){
+        		standByTiming--;
+        		led7seg_setChar(numberToCharUint(standByTiming), FALSE);
+        	}
+        	prevPCReportingTicks = getTicks();
         }
         if (standByTiming == 0 && getTicks() - prevCountingTicks >= SensorOperatingTimeInterval) {
             float temperature = temp_read() / 10.0;
@@ -409,7 +446,7 @@ void doStandByMode() {
             uint8_t isHot = (temperature >= TemperatureThreshold);
 
             // TODO: if conditions met, go to the active mode
-            if (!isRisky && !isHot) {
+            if (!isRisky && !isHot && isHandshakeEstablished) {
                 currentMode = Active;
                 break;
             }
