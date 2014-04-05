@@ -175,7 +175,7 @@ static const int TimeWindow = 3000;
 static const int ReportingTime = 1000;
 
 MachineMode currentMode = Calibration;
-int UnsafeFrequencyLowerBound = 1;
+int UnsafeFrequencyLowerBound = 2;
 int UnsafeFrequencyUpperBound = 10;
 uint32_t msTicks = 0;
 uint32_t luminance;
@@ -477,6 +477,7 @@ void doActiveMode() {
     uint8_t isHot = (temperature >= TemperatureThreshold);
     uint8_t joystickStatus;
     char freqString[255];
+    char msg[255];
 
     acc_setMode(ACC_MODE_MEASURE);
     oled_clearScreen(OLED_COLOR_BLACK);
@@ -537,6 +538,31 @@ void doActiveMode() {
             temperature = temp_read() / 10.0;
             isHot = (temperature >= TemperatureThreshold);
 
+            //UART handling in Active
+			if (isReceived) {
+				isReceived = 0;
+				UART_RcvMsgHandling();
+
+				if (strcmp(rev_buf, "RSTC") == 0) {
+					strcpy(msg, "CACK");
+					UART_Send_Message(msg);
+					currentMode = Calibration;
+					break;
+				} else if(strcmp(rev_buf, "RSTS") == 0){
+					strcpy(msg, "SACK");
+					UART_Send_Message(msg);
+					currentMode = StandBy;
+					break;
+				}
+			}
+			char reportContent[255];
+			char warningContent[255];
+			if(warningOn)
+				strcpy(warningContent, "WARNING");
+			else
+				strcpy(warningContent, "");
+			sprintf(reportContent, "REPT 056 %02d %s", countForFrequency / 2, warningContent);
+			UART_Send_Message(reportContent);
 
             if (countForFrequency / 2 >= UnsafeFrequencyLowerBound && countForFrequency / 2 <= UnsafeFrequencyUpperBound) {
                 if (isTimingForWarningOn) {
