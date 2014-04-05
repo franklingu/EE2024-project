@@ -171,12 +171,13 @@ typedef enum {
 
 // TODO: config const later for proper functioning
 static const int TicksInOneSecond = 1000;
-static const int SensorOperatingTimeInterval = 15;
+static const int SensorOperatingTimeInterval = 20;
 static const int TemperatureThreshold = 30;
 static const int LuminanceThreshold = 800;
 static const int TimeWindow = 3000;
 static const int ReportingTime = 1000;
 
+MachineMode currentMode = Calibration;
 int UnsafeFrequencyLowerBound = 1;
 int UnsafeFrequencyUpperBound = 10;
 uint32_t msTicks = 0;
@@ -184,7 +185,6 @@ uint32_t luminance;
 int8_t x, y, z;
 int8_t x_prev, y_prev, z_prev;
 int32_t xoff, yoff, zoff;
-MachineMode currentMode = Calibration;
 int8_t warningOn = 0;
 int8_t isBuzzerSet = 0;
 
@@ -433,12 +433,13 @@ void doActiveMode() {
     uint32_t prevPCReportingTicks = getTicks();
     uint32_t prevTimingForWarningOn = getTicks();
     uint32_t prevTimingForWarningOff = getTicks();
-    uint32_t prevBuzzerTiming = getTicks();
     uint32_t countForFrequency = 0;
     int8_t isTimingForWarningOn = 0;
     float temperature = temp_read() / 10.0;
     uint8_t isRisky = (luminance >= LuminanceThreshold);
     uint8_t isHot = (temperature >= TemperatureThreshold);
+    uint8_t joystickStatus;
+    char freqString[255];
 
     acc_setMode(ACC_MODE_MEASURE);
     oled_clearScreen(OLED_COLOR_BLACK);
@@ -454,9 +455,9 @@ void doActiveMode() {
      } else {
          oled_putString(0, 20, (uint8_t *)"NORMAL", OLED_COLOR_WHITE, OLED_COLOR_BLACK);
      }
+     sprintf(freqString, "Low: %d; Upp: %d  ", UnsafeFrequencyLowerBound, UnsafeFrequencyUpperBound);
+     oled_putString(0, 50, (uint8_t *)freqString, OLED_COLOR_WHITE, OLED_COLOR_BLACK);
     while (currentMode == Active) {
-        // TODO: continuous buzzer
-
         if (getTicks() - prevCountingTicks >= SensorOperatingTimeInterval) {
             isRisky = (luminance >= LuminanceThreshold);
 
@@ -470,6 +471,27 @@ void doActiveMode() {
             if ((z < 0 && z_prev >= 0) || (z >= 0 && z_prev < 0)) {
                 countForFrequency++;
             }
+
+            joystickStatus = joystick_read();
+            if (joystickStatus == JOYSTICK_CENTER) {
+                // nothing
+            } else if (joystickStatus == JOYSTICK_UP) {
+                UnsafeFrequencyUpperBound++;
+                sprintf(freqString, "Low: %d; Upp: %d  ", UnsafeFrequencyLowerBound, UnsafeFrequencyUpperBound);
+                oled_putString(0, 50, (uint8_t *)freqString, OLED_COLOR_WHITE, OLED_COLOR_BLACK);
+            } else if (joystickStatus == JOYSTICK_DOWN && UnsafeFrequencyUpperBound > UnsafeFrequencyLowerBound + 1) {
+                UnsafeFrequencyUpperBound--;
+                sprintf(freqString, "Low: %d; Upp: %d  ", UnsafeFrequencyLowerBound, UnsafeFrequencyUpperBound);
+                oled_putString(0, 50, (uint8_t *)freqString, OLED_COLOR_WHITE, OLED_COLOR_BLACK);
+            } else if (joystickStatus == JOYSTICK_LEFT && UnsafeFrequencyLowerBound > 0) {
+                UnsafeFrequencyLowerBound--;
+                sprintf(freqString, "Low: %d; Upp: %d  ", UnsafeFrequencyLowerBound, UnsafeFrequencyUpperBound);
+                oled_putString(0, 50, (uint8_t *)freqString, OLED_COLOR_WHITE, OLED_COLOR_BLACK);
+            } else if (joystickStatus == JOYSTICK_RIGHT && UnsafeFrequencyUpperBound > UnsafeFrequencyLowerBound + 1) {
+                UnsafeFrequencyLowerBound++;
+                sprintf(freqString, "Low: %d; Upp: %d  ", UnsafeFrequencyLowerBound, UnsafeFrequencyUpperBound);
+                oled_putString(0, 50, (uint8_t *)freqString, OLED_COLOR_WHITE, OLED_COLOR_BLACK);
+            } 
 
             prevCountingTicks = getTicks();
         }
@@ -516,6 +538,7 @@ void all_init() {
     led7seg_init();
     acc_init();
     oled_init();
+    joystick_init();
 
     // GPIO settings generally
     GPIO_SetDir( 2, (1<<0), 1 );
