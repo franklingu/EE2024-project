@@ -24,7 +24,7 @@
 #include <stdio.h>
 #include <string.h>
 
-#define UART_PORT	(LPC_UART_TypeDef *)LPC_UART3   // Select UART1
+#define UART_PORT   (LPC_UART_TypeDef *)LPC_UART3   // Select UART1
 uint8_t rev_buf[255];                             // Reception buffer
 uint32_t rev_cnt = 0;                                 // Reception counter
 
@@ -42,7 +42,7 @@ void UART_IntReceive(void)
         // Echo characters received
         UART_Send(UART_PORT, &rev_buf[rev_cnt], 1, NONE_BLOCKING);
         if(rev_buf[rev_cnt] == '\r'){
-        	isReceived = 1;
+            isReceived = 1;
         }
         rev_cnt++;
         if(rev_cnt == 255) rev_cnt = 0;
@@ -155,12 +155,12 @@ void UART_Receive_Int_Init()
     }
 }
 
-void UART_Send_Message(char* msg){
-	//handling message, eg \0 to \r\n
-	int len = strlen(msg);
-	msg[len] = '\r';// \0 -> \r
-	msg[++len] = '\n';// append \n behind
-	UART_Send(UART_PORT, (uint8_t*)msg, (uint32_t)len, BLOCKING);
+void UART_Send_Message(char* msg) {
+    //handling message, eg \0 to \r\n
+    int len = strlen(msg);
+    msg[len] = '\r';// \0 -> \r
+    msg[++len] = '\n';// append \n behind
+    UART_Send(UART_PORT, (uint8_t*)msg, (uint32_t)len, BLOCKING);
 }
 
 typedef enum {
@@ -186,6 +186,7 @@ int8_t x_prev, y_prev, z_prev;
 int32_t xoff, yoff, zoff;
 MachineMode currentMode = Calibration;
 int8_t warningOn = 0;
+int8_t isBuzzerSet = 0;
 
 static void ssp_init(void)
 {
@@ -281,6 +282,15 @@ int calibratedBtn_read(void) {
 
 void SysTick_Handler(void) {
     msTicks++;
+    if (warningOn) {
+        if (!isBuzzerSet) {
+            GPIO_SetValue(0, 1 << 26);
+            isBuzzerSet = !isBuzzerSet;
+        } else if (isBuzzerSet) {
+            GPIO_ClearValue(0, 1 << 26);
+            isBuzzerSet = !isBuzzerSet;
+        }
+    }
 }
 
 static uint32_t getTicks(void) {
@@ -314,13 +324,6 @@ void shouldUpdateXYZ(){
 
 uint8_t numberToCharUint(int number) {
     return (uint8_t)(number + 48);
-}
-
-void playBuzzer() {
-    GPIO_SetValue(0, 1 << 26);
-    Timer0_us_Wait(1000 / 2);
-    GPIO_ClearValue(0, 1 << 26);
-    Timer0_us_Wait(1000 / 2);
 }
 
 void turnOnWarning() {
@@ -390,12 +393,12 @@ void doStandByMode() {
     led7seg_setChar(numberToCharUint(standByTiming), FALSE);
     while (currentMode == StandBy) {
         if (standByTiming > 0 && getTicks() - prevCountingTicks >= TicksInOneSecond) {
-        	strcpy(msg, "hello world!");
-        	UART_Send_Message(msg);
-        	if(isReceived){
-        		strcpy(msg, "rcv!");
-        		UART_Send_Message(msg);
-        	}
+            strcpy(msg, "hello world!");
+            UART_Send_Message(msg);
+            if(isReceived){
+                strcpy(msg, "rcv!");
+                UART_Send_Message(msg);
+            }
             standByTiming--;
             led7seg_setChar(numberToCharUint(standByTiming), FALSE);
             prevCountingTicks = getTicks();
@@ -436,7 +439,6 @@ void doActiveMode() {
     float temperature = temp_read() / 10.0;
     uint8_t isRisky = (luminance >= LuminanceThreshold);
     uint8_t isHot = (temperature >= TemperatureThreshold);
-    uint8_t isBuzzerSet = 0;
 
     acc_setMode(ACC_MODE_MEASURE);
     oled_clearScreen(OLED_COLOR_BLACK);
@@ -453,18 +455,7 @@ void doActiveMode() {
          oled_putString(0, 20, (uint8_t *)"NORMAL", OLED_COLOR_WHITE, OLED_COLOR_BLACK);
      }
     while (currentMode == Active) {
-                // TODO: continuous buzzer
-        if (warningOn) {
-            if (!isBuzzerSet && getTicks() - prevBuzzerTiming > 1) {
-                GPIO_SetValue(0, 1 << 26);
-                prevBuzzerTiming = getTicks();
-                isBuzzerSet = !isBuzzerSet;
-            } else if (isBuzzerSet && getTicks() - prevBuzzerTiming > 1) {
-                GPIO_ClearValue(0, 1 << 26);
-                prevBuzzerTiming = getTicks();
-                isBuzzerSet = !isBuzzerSet;
-            }
-        }
+        // TODO: continuous buzzer
 
         if (getTicks() - prevCountingTicks >= SensorOperatingTimeInterval) {
             isRisky = (luminance >= LuminanceThreshold);
