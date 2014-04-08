@@ -24,50 +24,119 @@
 #include <stdio.h>
 #include <string.h>
 
-#define UART_PORT   (LPC_UART_TypeDef *)LPC_UART3   // Select UART1
-uint8_t rev_buf[255];                             // Reception buffer
-uint32_t rev_cnt = 0;                                 // Reception counter
+#define UART_PORT   (LPC_UART_TypeDef *)LPC_UART3   // Select UART3
+uint8_t rev_buf[255];                               // Reception buffer
+uint32_t rev_cnt = 0;                               // Reception counter
 
-uint32_t isReceived = 0;
-/********************************************************************//**
- * @brief         UART receive callback function (ring buffer used)
- * @param[in]    None
- * @return         None
- *********************************************************************/
-void UART_IntReceive(void)
+uint32_t isReceived = 0;                            // Init to be not received
+
+typedef enum {
+    Calibration,
+    StandBy,
+    Active,
+} MachineMode;
+
+static const int TicksInOneSecond = 1000;
+static const int SensorOperatingTimeInterval = 20;
+static const int TemperatureThreshold = 30;
+static const int LuminanceThreshold = 800;
+static const int UnsafeFrequencyLowestBound = 0;
+static const int UnsafeFrequencyHighestBound = 25;
+
+MachineMode currentMode = Calibration;
+int unsafeFrequencyLowerBound = 2;
+int unsafeFrequencyHigherBound = 10;
+uint32_t msTicks = 0;
+uint32_t luminance;
+int TimeWindow = 3000;
+int ReportingTime = 1000;
+int8_t x, y, z;
+int8_t x_prev, y_prev, z_prev;
+int32_t xoff, yoff, zoff;
+int8_t warningOn = 0;
+int8_t isBuzzerSet = 0;
+
+int recentValCounter = 0;
+int8_t recentX[5] = {0,0,0,0,0};
+int8_t recentY[5] = {0,0,0,0,0};
+int8_t recentZ[5] = {0,0,0,0,0};
+
+static void ssp_init(void)
 {
-    /* Read the received data */
-    if(UART_Receive(UART_PORT, &rev_buf[rev_cnt], 1, NONE_BLOCKING) == 1) {
-        if(rev_buf[rev_cnt] == '\r'){
-            isReceived = 1;
-        }
-        rev_cnt++;
-        if(rev_cnt == 255) rev_cnt = 0;
-    }
+    SSP_CFG_Type SSP_ConfigStruct;
+    PINSEL_CFG_Type PinCfg;
+
+    /*
+     * Initialize SPI pin connect
+     * P0.7 - SCK;
+     * P0.8 - MISO
+     * P0.9 - MOSI
+     * P2.2 - SSEL - used as GPIO
+     */
+    PinCfg.Funcnum = 2;
+    PinCfg.OpenDrain = 0;
+    PinCfg.Pinmode = 0;
+    PinCfg.Portnum = 0;
+    PinCfg.Pinnum = 7;
+    PINSEL_ConfigPin(&PinCfg);
+    PinCfg.Pinnum = 8;
+    PINSEL_ConfigPin(&PinCfg);
+    PinCfg.Pinnum = 9;
+    PINSEL_ConfigPin(&PinCfg);
+    PinCfg.Funcnum = 0;
+    PinCfg.Portnum = 2;
+    PinCfg.Pinnum = 2;
+    PINSEL_ConfigPin(&PinCfg);
+
+    SSP_ConfigStructInit(&SSP_ConfigStruct);
+
+    // Initialize SSP peripheral with parameter given in structure above
+    SSP_Init(LPC_SSP1, &SSP_ConfigStruct);
+
+    // Enable SSP peripheral
+    SSP_Cmd(LPC_SSP1, ENABLE);
+
 }
 
-/*********************************************************************//**
- * @brief    UART1 interrupt handler sub-routine reference, just to call the
- *                 standard interrupt handler in uart driver
- * @param    None
- * @return    None
- **********************************************************************/
-void UART0_IRQHandler(void)
+static void i2c_init(void)
 {
-    // Call Standard UART 0 interrupt handler
-    UART0_StdIntHandler();
+    PINSEL_CFG_Type PinCfg;
+
+    /* Initialize I2C2 pin connect */
+    PinCfg.Funcnum = 2;
+    PinCfg.Pinnum = 10;
+    PinCfg.Portnum = 0;
+    PINSEL_ConfigPin(&PinCfg);
+    PinCfg.Pinnum = 11;
+    PINSEL_ConfigPin(&PinCfg);
+
+    // Initialize I2C peripheral
+    I2C_Init(LPC_I2C2, 100000);
+
+    /* Enable I2C1 operation */
+    I2C_Cmd(LPC_I2C2, ENABLE);
 }
 
-/*********************************************************************//**
- * @brief    UART1 interrupt handler sub-routine reference, just to call the
- *                 standard interrupt handler in uart driver
- * @param    None
- * @return    None
- **********************************************************************/
-void UART3_IRQHandler(void)
-{
-    // Call Standard UART 0 interrupt handler
-    UART3_StdIntHandler();
+void resetBtn_init(void) {
+    PINSEL_CFG_Type PinCfg;
+    PinCfg.Portnum = 0;
+    PinCfg.Pinnum = 4;
+    PinCfg.Funcnum = 0;
+    PinCfg.OpenDrain = 0;
+    PinCfg.Pinmode = 0;
+    PINSEL_ConfigPin(&PinCfg);
+    GPIO_SetDir(0, (1<<4), 0);
+}
+
+void calibratedBtn_init(void) {
+    PINSEL_CFG_Type PinCfg;
+    PinCfg.Portnum = 1;
+    PinCfg.Pinnum = 31;
+    PinCfg.Funcnum = 0;
+    PinCfg.OpenDrain = 0;
+    PinCfg.Pinmode = 0;
+    PINSEL_ConfigPin(&PinCfg);
+    GPIO_SetDir(1, (1<<31), 0);
 }
 
 void UART_Receive_Int_Init()
@@ -152,6 +221,33 @@ void UART_Receive_Int_Init()
     }
 }
 
+// UART receive callback function (ring buffer used)
+void UART_IntReceive(void)
+{
+    /* Read the received data */
+    if(UART_Receive(UART_PORT, &rev_buf[rev_cnt], 1, NONE_BLOCKING) == 1) {
+        if(rev_buf[rev_cnt] == '\r'){
+            isReceived = 1;
+        }
+        rev_cnt++;
+        if(rev_cnt == 255) rev_cnt = 0;
+    }
+}
+
+//UART0 interrupt handler sub-routine reference, just to call the
+//                 standard interrupt handler in uart driver
+void UART0_IRQHandler(void)
+{
+    UART0_StdIntHandler();
+}
+
+//UART3 interrupt handler sub-routine reference, just to call the
+//                 standard interrupt handler in uart driver
+void UART3_IRQHandler(void)
+{
+    UART3_StdIntHandler();
+}
+
 void UART_Send_Message(char* msg){
     //handling message, eg \0 to \r\n
     int len = strlen(msg);
@@ -160,108 +256,9 @@ void UART_Send_Message(char* msg){
     UART_Send(UART_PORT, (uint8_t*)msg, (uint32_t)len, BLOCKING);
 }
 
-typedef enum {
-    Calibration,
-    StandBy,
-    Active,
-} MachineMode;
-
-static const int TicksInOneSecond = 1000;
-static const int SensorOperatingTimeInterval = 20;
-static const int TemperatureThreshold = 30;
-static const int LuminanceThreshold = 800;
-static const int TimeWindow = 3000;
-static const int ReportingTime = 1000;
-static const int UnsafeFrequencyLowestBound = 0;
-static const int UnsafeFrequencyHighestBound = 25;
-
-MachineMode currentMode = Calibration;
-int unsafeFrequencyLowerBound = 2;
-int unsafeFrequencyHigherBound = 10;
-uint32_t msTicks = 0;
-uint32_t luminance;
-int8_t x, y, z;
-int8_t x_prev, y_prev, z_prev;
-int32_t xoff, yoff, zoff;
-int8_t warningOn = 0;
-int8_t isBuzzerSet = 0;
-
-static void ssp_init(void)
-{
-    SSP_CFG_Type SSP_ConfigStruct;
-    PINSEL_CFG_Type PinCfg;
-
-    /*
-     * Initialize SPI pin connect
-     * P0.7 - SCK;
-     * P0.8 - MISO
-     * P0.9 - MOSI
-     * P2.2 - SSEL - used as GPIO
-     */
-    PinCfg.Funcnum = 2;
-    PinCfg.OpenDrain = 0;
-    PinCfg.Pinmode = 0;
-    PinCfg.Portnum = 0;
-    PinCfg.Pinnum = 7;
-    PINSEL_ConfigPin(&PinCfg);
-    PinCfg.Pinnum = 8;
-    PINSEL_ConfigPin(&PinCfg);
-    PinCfg.Pinnum = 9;
-    PINSEL_ConfigPin(&PinCfg);
-    PinCfg.Funcnum = 0;
-    PinCfg.Portnum = 2;
-    PinCfg.Pinnum = 2;
-    PINSEL_ConfigPin(&PinCfg);
-
-    SSP_ConfigStructInit(&SSP_ConfigStruct);
-
-    // Initialize SSP peripheral with parameter given in structure above
-    SSP_Init(LPC_SSP1, &SSP_ConfigStruct);
-
-    // Enable SSP peripheral
-    SSP_Cmd(LPC_SSP1, ENABLE);
-
-}
-
-static void i2c_init(void)
-{
-    PINSEL_CFG_Type PinCfg;
-
-    /* Initialize I2C2 pin connect */
-    PinCfg.Funcnum = 2;
-    PinCfg.Pinnum = 10;
-    PinCfg.Portnum = 0;
-    PINSEL_ConfigPin(&PinCfg);
-    PinCfg.Pinnum = 11;
-    PINSEL_ConfigPin(&PinCfg);
-
-    // Initialize I2C peripheral
-    I2C_Init(LPC_I2C2, 100000);
-
-    /* Enable I2C1 operation */
-    I2C_Cmd(LPC_I2C2, ENABLE);
-}
-
-void resetBtn_init(void) {
-    PINSEL_CFG_Type PinCfg;
-    PinCfg.Portnum = 0;
-    PinCfg.Pinnum = 4;
-    PinCfg.Funcnum = 0;
-    PinCfg.OpenDrain = 0;
-    PinCfg.Pinmode = 0;
-    PINSEL_ConfigPin(&PinCfg);
-    GPIO_SetDir(0, (1<<4), 0);
-}
-
-void calibratedBtn_init(void) {
-    PINSEL_CFG_Type PinCfg;
-    PinCfg.Portnum = 1;
-    PinCfg.Pinnum = 31;
-    PinCfg.Funcnum = 0;
-    PinCfg.OpenDrain = 0;
-    PinCfg.Pinmode = 0;
-    PINSEL_ConfigPin(&PinCfg);
-    GPIO_SetDir(1, (1<<31), 0);
+void UART_RcvMsgHandling(){
+    rev_buf[rev_cnt-1] = '\0';
+    rev_cnt = 0;
 }
 
 int resetBtn_read(void) {
@@ -294,11 +291,6 @@ void SysTick_Handler(void) {
 static uint32_t getTicks(void) {
     return msTicks;
 }
-
-int recentValCounter = 0;
-int8_t recentX[5] = {0,0,0,0,0};
-int8_t recentY[5] = {0,0,0,0,0};
-int8_t recentZ[5] = {0,0,0,0,0};
 
 void shouldUpdateXYZ(){
     recentX[recentValCounter] = x;
@@ -343,20 +335,6 @@ void turnOffWarning() {
     GPIO_ClearValue(0, 1<<26);
 }
 
-void accReadSelfImproved() {
-    x_prev = x;
-    y_prev = y;
-    z_prev = z;
-    acc_read(&x, &y, &z);
-    x = x + xoff;
-    y = y + yoff;
-    z = z + zoff;
-    shouldUpdateXYZ();
-    if (x >= -1 && x <= 1 && y >= -1 && y <= 1 && z >= -1 && z <= 1) {
-		x = y = z = 0;
-	}
-}
-
 void doCalibration() {
     char oledOutput1[15];
     char oledOutput2[15];
@@ -388,11 +366,6 @@ void doCalibration() {
     xoff = 0-x;
     yoff = 0-y;
     zoff = 0-z;
-}
-
-void UART_RcvMsgHandling(){
-    rev_buf[rev_cnt-1] = '\0';
-    rev_cnt = 0;
 }
 
 void doStandByMode() {
