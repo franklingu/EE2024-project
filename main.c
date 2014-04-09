@@ -20,6 +20,7 @@
 #include "oled.h"
 #include "temp.h"
 #include "rgb.h"
+#include "rotary.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -38,18 +39,21 @@ typedef enum {
 
 static const int TicksInOneSecond = 1000;
 static const int SensorOperatingTimeInterval = 20;
-static const int TemperatureThreshold = 30;
+static const int TemperatureThreshold = 26;
 static const int LuminanceThreshold = 800;
 static const int UnsafeFrequencyLowestBound = 0;
 static const int UnsafeFrequencyHighestBound = 25;
+static const int TimeWindowHighestBound = 10000;
+static const int ReportingPeriodLowestBound = 500;
+static const int StepForTimeAdjustment = 100;
 
 MachineMode currentMode = Calibration;
 int unsafeFrequencyLowerBound = 2;
 int unsafeFrequencyHigherBound = 10;
 uint32_t msTicks = 0;
 uint32_t luminance;
-int TimeWindow = 3000;
-int ReportingTime = 1000;
+int timeWindow = 3000;
+int reportingPeriod = 1000;
 int8_t x, y, z;
 int8_t x_prev, y_prev, z_prev;
 int32_t xoff, yoff, zoff;
@@ -139,6 +143,19 @@ void calibratedBtn_init(void) {
     GPIO_SetDir(1, (1<<31), 0);
 }
 
+// UART receive callback function (ring buffer used)
+void UART_IntReceive(void)
+{
+    /* Read the received data */
+    if(UART_Receive(UART_PORT, &rev_buf[rev_cnt], 1, NONE_BLOCKING) == 1) {
+        if(rev_buf[rev_cnt] == '\r'){
+            isReceived = 1;
+        }
+        rev_cnt++;
+        if(rev_cnt == 255) rev_cnt = 0;
+    }
+}
+
 void UART_Receive_Int_Init()
 {
     // UART Configuration structure variable
@@ -160,8 +177,7 @@ void UART_Receive_Int_Init()
         PINSEL_ConfigPin(&PinCfg);
         PinCfg.Pinnum = 3;
         PINSEL_ConfigPin(&PinCfg);
-    }
-    else if ((uint32_t)UART_PORT == (uint32_t)LPC_UART3) {
+    } else if ((uint32_t)UART_PORT == (uint32_t)LPC_UART3) {
         /*
          * Initialize UART1 pin connect
          */
@@ -218,19 +234,6 @@ void UART_Receive_Int_Init()
     else if ((uint32_t)UART_PORT == (uint32_t)LPC_UART3) {
         /* Enable Interrupt for UART1 channel */
         NVIC_EnableIRQ(UART3_IRQn);
-    }
-}
-
-// UART receive callback function (ring buffer used)
-void UART_IntReceive(void)
-{
-    /* Read the received data */
-    if(UART_Receive(UART_PORT, &rev_buf[rev_cnt], 1, NONE_BLOCKING) == 1) {
-        if(rev_buf[rev_cnt] == '\r'){
-            isReceived = 1;
-        }
-        rev_cnt++;
-        if(rev_cnt == 255) rev_cnt = 0;
     }
 }
 
@@ -307,13 +310,28 @@ void shouldUpdateXYZ(){
     z = meanZ;
 }
 
+
+void accReadSelfImproved() {
+    x_prev = x;
+    y_prev = y;
+    z_prev = z;
+    acc_read(&x, &y, &z);
+    x = x + xoff;
+    y = y + yoff;
+    z = z + zoff;
+    shouldUpdateXYZ();
+    if (x >= -1 && x <= 1 && y >= -1 && y <= 1 && z >= -1 && z <= 1) {
+        x = y = z = 0;
+    }
+}
+
 void clearRecentXYZ(){
-	int i;
-	for(i = 0; i < 5; i++){
-		recentX[i] = 0;
-		recentY[i] = 0;
-		recentZ[i] = 0;
-	}
+    int i;
+    for(i = 0; i < 5; i++){
+        recentX[i] = 0;
+        recentY[i] = 0;
+        recentZ[i] = 0;
+    }
 }
 
 uint8_t numberToCharUint(int number) {
@@ -339,12 +357,15 @@ void doCalibration() {
     char oledOutput1[15];
     char oledOutput2[15];
     char oledOutput3[15];
+    char timeWindowString[20];
     uint32_t prevCountingTicks = getTicks();
 
     acc_setMode(ACC_MODE_MEASURE);
     led7seg_setChar('0', FALSE);
     oled_clearScreen(OLED_COLOR_BLACK);
     oled_putString(0, 0, (uint8_t *) "CALIBRATION", OLED_COLOR_WHITE, OLED_COLOR_BLACK);
+    sprintf(timeWindowString, "timeWin: %d  ", timeWindow);
+    oled_putString(0, 50, (uint8_t *)timeWindowString, OLED_COLOR_WHITE, OLED_COLOR_BLACK);
     while(currentMode == Calibration){
         if (calibratedBtn_read() == 0) {
             currentMode = StandBy;
@@ -359,6 +380,16 @@ void doCalibration() {
             oled_putString(0, 10, (uint8_t *)oledOutput1, OLED_COLOR_WHITE, OLED_COLOR_BLACK);
             oled_putString(0, 20, (uint8_t *)oledOutput2, OLED_COLOR_WHITE, OLED_COLOR_BLACK);
             oled_putString(0, 30, (uint8_t *)oledOutput3, OLED_COLOR_WHITE, OLED_COLOR_BLACK);
+            uint8_t rotaryStatus = rotary_read();
+            if (rotaryStatus == ROTARY_RIGHT && timeWindow < TimeWindowHighestBound) {
+                timeWindow += StepForTimeAdjustment;
+                sprintf(timeWindowString, "timeWin: %d", timeWindow);
+                oled_putString(0, 50, (uint8_t *)timeWindowString, OLED_COLOR_WHITE, OLED_COLOR_BLACK);
+            } else if (rotaryStatus == ROTARY_LEFT && timeWindow > reportingPeriod) {
+                timeWindow -= StepForTimeAdjustment;
+                sprintf(timeWindowString, "timeWin: %d", timeWindow);
+                oled_putString(0, 50, (uint8_t *)timeWindowString, OLED_COLOR_WHITE, OLED_COLOR_BLACK);
+            }
             prevCountingTicks = getTicks();
         }
     }
@@ -466,17 +497,17 @@ void doActiveMode() {
     led7seg_setChar('0', FALSE);
     oled_putString(0, 0, (uint8_t *)"ACTIVE", OLED_COLOR_WHITE, OLED_COLOR_BLACK);
     if (isRisky) {
-         oled_putString(0, 10, (uint8_t *)"RISKY", OLED_COLOR_WHITE, OLED_COLOR_BLACK);
-     } else {
-         oled_putString(0, 10, (uint8_t *)"SAFE ", OLED_COLOR_WHITE, OLED_COLOR_BLACK);
-     }
-     if (isHot) {
-         oled_putString(0, 20, (uint8_t *)"HOT   ", OLED_COLOR_WHITE, OLED_COLOR_BLACK);
-     } else {
-         oled_putString(0, 20, (uint8_t *)"NORMAL", OLED_COLOR_WHITE, OLED_COLOR_BLACK);
-     }
-     sprintf(freqString, "Low: %d; Upp: %d", unsafeFrequencyLowerBound, unsafeFrequencyHigherBound);
-     oled_putString(0, 50, (uint8_t *)freqString, OLED_COLOR_WHITE, OLED_COLOR_BLACK);
+        oled_putString(0, 10, (uint8_t *)"RISKY", OLED_COLOR_WHITE, OLED_COLOR_BLACK);
+    } else {
+        oled_putString(0, 10, (uint8_t *)"SAFE ", OLED_COLOR_WHITE, OLED_COLOR_BLACK);
+    }
+    if (isHot) {
+        oled_putString(0, 20, (uint8_t *)"HOT   ", OLED_COLOR_WHITE, OLED_COLOR_BLACK);
+    } else {
+        oled_putString(0, 20, (uint8_t *)"NORMAL", OLED_COLOR_WHITE, OLED_COLOR_BLACK);
+    }
+    sprintf(freqString, "Low: %d; Upp: %d", unsafeFrequencyLowerBound, unsafeFrequencyHigherBound);
+    oled_putString(0, 50, (uint8_t *)freqString, OLED_COLOR_WHITE, OLED_COLOR_BLACK);
     while (currentMode == Active) {
         if (getTicks() - prevCountingTicks >= SensorOperatingTimeInterval) {
             isRisky = (luminance >= LuminanceThreshold);
@@ -515,7 +546,7 @@ void doActiveMode() {
 
             prevCountingTicks = getTicks();
         }
-        if (getTicks() - prevPCReportingTicks >= ReportingTime) {
+        if (getTicks() - prevPCReportingTicks >= reportingPeriod) {
             temperature = temp_read() / 10.0;
             isHot = (temperature >= TemperatureThreshold);
 
@@ -547,19 +578,19 @@ void doActiveMode() {
 
             if (countForFrequency / 2 >= unsafeFrequencyLowerBound && countForFrequency / 2 <= unsafeFrequencyHigherBound) {
                 if (isTimingForWarningOn) {
-                    if (getTicks() - prevTimingForWarningOn >= TimeWindow) {
+                    if (getTicks() - prevTimingForWarningOn >= timeWindow) {
                         turnOnWarning();
                     }
                 } else {
-                    prevTimingForWarningOn = getTicks() - ReportingTime;
+                    prevTimingForWarningOn = getTicks() - reportingPeriod;
                     isTimingForWarningOn = 1;
                 }
             } else {
                 if (isTimingForWarningOn) {
-                    prevTimingForWarningOff = getTicks() - ReportingTime;
+                    prevTimingForWarningOff = getTicks() - reportingPeriod;
                     isTimingForWarningOn = 0;
                 } else {
-                    if (getTicks() - prevTimingForWarningOff >= TimeWindow) {
+                    if (getTicks() - prevTimingForWarningOff >= timeWindow) {
                         turnOffWarning();
                     }
                 }
@@ -583,6 +614,7 @@ void all_init() {
     acc_init();
     oled_init();
     joystick_init();
+    rotary_init();
 
     // GPIO settings generally
     GPIO_SetDir( 2, (1<<0), 1 );
@@ -632,6 +664,9 @@ void all_init() {
     NVIC_EnableIRQ(EINT3_IRQn);
     UART_Receive_Int_Init();
     // TODO: set up interrupt priority
+    NVIC_SetPriority(EINT3_IRQn, (1 << __NVIC_PRIO_BITS));  // 1 << 5 = 16, first priority for external interrupt
+    NVIC_SetPriority(UART3_IRQn, (1 << __NVIC_PRIO_BITS) + 1);
+    NVIC_SetPriority(TIMER0_IRQn, (1 << __NVIC_PRIO_BITS) + 2);
 }
 
 void EINT3_IRQHandler(void){
