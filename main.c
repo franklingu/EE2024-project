@@ -1,8 +1,10 @@
 /*****************************************************************************
- *   A demo example using several of the peripherals on the base board
  *
- *   Copyright(C) 2011, EE2024
- *   All rights reserved.
+ *   EE2024 Assignment 2 Program
+ *
+ *   Monday Lab Group
+ *   Gu Junchao (A0105750N)
+ *   XIE KAI (A0102016E)
  *
  ******************************************************************************/
 
@@ -121,6 +123,7 @@ static void i2c_init(void)
     I2C_Cmd(LPC_I2C2, ENABLE);
 }
 
+//SW3 Reset Button will shift FFS back to Calibration mode
 void resetBtn_init(void) {
     PINSEL_CFG_Type PinCfg;
     PinCfg.Portnum = 0;
@@ -132,6 +135,8 @@ void resetBtn_init(void) {
     GPIO_SetDir(0, (1<<4), 0);
 }
 
+//SW4 Calibration Button will move FFS to StandBy mode, 
+//if current mode is Calibration mode
 void calibratedBtn_init(void) {
     PINSEL_CFG_Type PinCfg;
     PinCfg.Portnum = 1;
@@ -143,7 +148,8 @@ void calibratedBtn_init(void) {
     GPIO_SetDir(1, (1<<31), 0);
 }
 
-// UART receive callback function (ring buffer used)
+// UART Receive Callback Function
+// It will be called when a message is received
 void UART_IntReceive(void)
 {
     /* Read the received data */
@@ -156,101 +162,59 @@ void UART_IntReceive(void)
     }
 }
 
+//set up UART interrupt
 void UART_Receive_Int_Init()
 {
-    // UART Configuration structure variable
+    // UART Config
     UART_CFG_Type UARTConfigStruct;
-    // UART FIFO configuration Struct variable
+    // UART FIFO config
     UART_FIFO_CFG_Type UARTFIFOConfigStruct;
-    // Pin configuration for UART0
+    // Pin config
     PINSEL_CFG_Type PinCfg;
-
-    if((uint32_t)UART_PORT == (uint32_t)LPC_UART0) {
-        /*
-         * Initialize UART0 pin connect
-         */
-        PinCfg.Funcnum = 1;
-        PinCfg.OpenDrain = 0;
-        PinCfg.Pinmode = 0;
-        PinCfg.Pinnum = 2;
-        PinCfg.Portnum = 0;
-        PINSEL_ConfigPin(&PinCfg);
-        PinCfg.Pinnum = 3;
-        PINSEL_ConfigPin(&PinCfg);
-    } else if ((uint32_t)UART_PORT == (uint32_t)LPC_UART3) {
-        /*
-         * Initialize UART1 pin connect
-         */
-        PinCfg.Funcnum = 2;
-        PinCfg.OpenDrain = 0;
-        PinCfg.Pinmode = 0;
-        PinCfg.Pinnum = 0;
-        PinCfg.Portnum = 0;
-        PINSEL_ConfigPin(&PinCfg);
-        PinCfg.Pinnum = 1;
-        PINSEL_ConfigPin(&PinCfg);
-    }
-
-    /* Initialize UART Configuration parameter structure to default state:
-     * Baudrate = 9600bps
-     * 8 data bit
-     * 1 Stop bit
-     * None parity
-     */
+    PinCfg.Funcnum = 2;
+    PinCfg.OpenDrain = 0;
+    PinCfg.Pinmode = 0;
+    PinCfg.Pinnum = 0;
+    PinCfg.Portnum = 0;
+    PINSEL_ConfigPin(&PinCfg);
+    PinCfg.Pinnum = 1;
+    PINSEL_ConfigPin(&PinCfg);
+    /* Init UART Config to default state:
+     * Baudrate = 9600bps 8N1 */
     UART_ConfigStructInit(&UARTConfigStruct);
-
     /* Set Baudrate to 115200 */
     UARTConfigStruct.Baud_rate = 115200;
-
-    // Initialize UART0 peripheral with given to corresponding parameter
+    // Init UART3
     UART_Init(UART_PORT, &UARTConfigStruct);
+    //--------------------------------------
 
-    /* Initialize FIFOConfigStruct to default state:
-     *                 - FIFO_DMAMode = DISABLE
-     *                 - FIFO_Level = UART_FIFO_TRGLEV0
-     *                 - FIFO_ResetRxBuf = ENABLE
-     *                 - FIFO_ResetTxBuf = ENABLE
-     *                 - FIFO_State = ENABLE
+    /* Init FIFOConfig to default state,
+     * using FIFO will allow LPC to have more time to handle interrupts,
+     * and also prevent data loss at high rate
      */
     UART_FIFOConfigStructInit(&UARTFIFOConfigStruct);
-
-    // Initialize FIFO for UART0 peripheral
+    // Init FIFO for UART3
     UART_FIFOConfig(UART_PORT, &UARTFIFOConfigStruct);
+    //------------------------------------------------
 
-    // Setup callback ---------------
-    // Receive callback
+    // Setup callback for Receive Message
     UART_SetupCbs(UART_PORT, 0, (void *)UART_IntReceive);
-
     // Enable UART Transmit
     UART_TxCmd(UART_PORT, ENABLE);
-
     /* Enable UART Rx interrupt */
     UART_IntConfig(UART_PORT, UART_INTCFG_RBR, ENABLE);
-
-    if((uint32_t)UART_PORT == (uint32_t)LPC_UART0) {
-    /* Enable Interrupt for UART0 channel */
-        NVIC_EnableIRQ(UART0_IRQn);
-    }
-    else if ((uint32_t)UART_PORT == (uint32_t)LPC_UART3) {
-        /* Enable Interrupt for UART1 channel */
-        NVIC_EnableIRQ(UART3_IRQn);
-    }
+    /* Enable Interrupt for UART3 */
+    NVIC_EnableIRQ(UART3_IRQn);
 }
 
-//UART0 interrupt handler sub-routine reference, just to call the
-//                 standard interrupt handler in uart driver
-void UART0_IRQHandler(void)
-{
-    UART0_StdIntHandler();
-}
-
-//UART3 interrupt handler sub-routine reference, just to call the
-//                 standard interrupt handler in uart driver
+//UART3 interrupt handler
 void UART3_IRQHandler(void)
 {
     UART3_StdIntHandler();
 }
 
+//UART Sent, which includes message pre-processing that
+//change '\0' to '\r\n'
 void UART_Send_Message(char* msg){
     //handling message, eg \0 to \r\n
     int len = strlen(msg);
@@ -259,11 +223,14 @@ void UART_Send_Message(char* msg){
     UART_Send(UART_PORT, (uint8_t*)msg, (uint32_t)len, BLOCKING);
 }
 
+//UART Receive Post-processing that
+//change '\r' to '\0'
 void UART_RcvMsgHandling(){
     rev_buf[rev_cnt-1] = '\0';
     rev_cnt = 0;
 }
 
+//unused, since right now we use interrupt to detect SW3
 int resetBtn_read(void) {
     uint32_t state;
 
@@ -271,6 +238,7 @@ int resetBtn_read(void) {
     return state & (1 << 4);
 }
 
+//read whether SW4 Calibration Button is pressed or not
 int calibratedBtn_read(void) {
     uint32_t state;
 
@@ -278,8 +246,10 @@ int calibratedBtn_read(void) {
     return state & (1 << 31);
 }
 
+//this handler occurs every 1ms
 void SysTick_Handler(void) {
     msTicks++;
+    //to produce continuous warning sounds
     if (warningOn) {
         if (!isBuzzerSet) {
             GPIO_SetValue(0, 1 << 26);
@@ -291,11 +261,14 @@ void SysTick_Handler(void) {
     }
 }
 
+//get current tick (time)
 static uint32_t getTicks(void) {
     return msTicks;
 }
 
+//improve Acc data by using MEAN Filter method
 void shouldUpdateXYZ(){
+    //we use Mean Filter here to remove noise
     recentX[recentValCounter] = x;
     recentY[recentValCounter] = y;
     recentZ[recentValCounter] = z;
@@ -310,7 +283,7 @@ void shouldUpdateXYZ(){
     z = meanZ;
 }
 
-
+//Acc read that includes data pre-processing and post-processing
 void accReadSelfImproved() {
     x_prev = x;
     y_prev = y;
@@ -353,6 +326,7 @@ void turnOffWarning() {
     GPIO_ClearValue(0, 1<<26);
 }
 
+//Calibration mode
 void doCalibration() {
     char oledOutput1[15];
     char oledOutput2[15];
@@ -360,6 +334,7 @@ void doCalibration() {
     char timeWindowString[20];
     uint32_t prevCountingTicks = getTicks();
 
+    //clear-up
     acc_setMode(ACC_MODE_MEASURE);
     led7seg_setChar('0', FALSE);
     oled_clearScreen(OLED_COLOR_BLACK);
@@ -367,10 +342,12 @@ void doCalibration() {
     sprintf(timeWindowString, "timeWin: %d  ", timeWindow);
     oled_putString(0, 50, (uint8_t *)timeWindowString, OLED_COLOR_WHITE, OLED_COLOR_BLACK);
     while(currentMode == Calibration){
+        //is calibrated?
         if (calibratedBtn_read() == 0) {
             currentMode = StandBy;
             break;
         }
+        //core of Calibration mode
         if (getTicks() - prevCountingTicks >= SensorOperatingTimeInterval) {
             acc_read(&x, &y, &z);
             shouldUpdateXYZ();
@@ -380,6 +357,8 @@ void doCalibration() {
             oled_putString(0, 10, (uint8_t *)oledOutput1, OLED_COLOR_WHITE, OLED_COLOR_BLACK);
             oled_putString(0, 20, (uint8_t *)oledOutput2, OLED_COLOR_WHITE, OLED_COLOR_BLACK);
             oled_putString(0, 30, (uint8_t *)oledOutput3, OLED_COLOR_WHITE, OLED_COLOR_BLACK);
+
+            //Rotary Switch Control (Extra Feature)
             uint8_t rotaryStatus = rotary_read();
             if (rotaryStatus == ROTARY_RIGHT && timeWindow < TimeWindowHighestBound) {
                 timeWindow += StepForTimeAdjustment;
@@ -393,12 +372,14 @@ void doCalibration() {
             prevCountingTicks = getTicks();
         }
     }
+    //setup Offset values
     clearRecentXYZ();
     xoff = 0-x;
     yoff = 0-y;
     zoff = 0-z;
 }
 
+//StandBy mode
 void doStandByMode() {
     int standByTiming = 5;
     uint32_t prevCountingTicks = getTicks();
@@ -408,11 +389,13 @@ void doStandByMode() {
     int isReadyMsgSent = 0;
     int UART_waitTime = 0;
 
+    //clean-up
     acc_setMode(ACC_MODE_STANDBY);
     oled_clearScreen(OLED_COLOR_BLACK);
     oled_putString(0, 0, (uint8_t *)"STANDBY", OLED_COLOR_WHITE, OLED_COLOR_BLACK);
     led7seg_setChar(numberToCharUint(standByTiming), FALSE);
     while (currentMode == StandBy) {
+        //Communication with Station
         if (getTicks() - prevPCReportingTicks >= TicksInOneSecond) {
             //UART handling in StandBy
             if(isReceived){
@@ -448,12 +431,14 @@ void doStandByMode() {
                     }
                 }
             }
+            //Counter down in 7Seg Display
             if(standByTiming > 0){
                 standByTiming--;
                 led7seg_setChar(numberToCharUint(standByTiming), FALSE);
             }
             prevPCReportingTicks = getTicks();
         }
+        //Core of StandBy mode
         if (standByTiming == 0 && getTicks() - prevCountingTicks >= SensorOperatingTimeInterval) {
             float temperature = temp_read() / 10.0;
             uint8_t isRisky = (luminance >= LuminanceThreshold);
@@ -478,6 +463,7 @@ void doStandByMode() {
     }
 }
 
+//Active mode
 void doActiveMode() {
     uint32_t prevCountingTicks = getTicks();
     uint32_t prevPCReportingTicks = getTicks();
@@ -492,6 +478,7 @@ void doActiveMode() {
     char freqString[255];
     char msg[255];
 
+    //clean-up
     acc_setMode(ACC_MODE_MEASURE);
     oled_clearScreen(OLED_COLOR_BLACK);
     led7seg_setChar('0', FALSE);
@@ -523,6 +510,7 @@ void doActiveMode() {
                 countForFrequency++;
             }
 
+            //Joystick Control (Extra Feature)
             joystickStatus = joystick_read();
             if (joystickStatus == JOYSTICK_CENTER) {
                 // nothing
@@ -546,6 +534,7 @@ void doActiveMode() {
 
             prevCountingTicks = getTicks();
         }
+        //Communication with Station
         if (getTicks() - prevPCReportingTicks >= reportingPeriod) {
             temperature = temp_read() / 10.0;
             isHot = (temperature >= TemperatureThreshold);
@@ -576,6 +565,7 @@ void doActiveMode() {
             sprintf(reportContent, "REPT 056 %02d %s", countForFrequency / 2, warningContent);
             UART_Send_Message(reportContent);
 
+            //Core of Active mode
             if (countForFrequency / 2 >= unsafeFrequencyLowerBound && countForFrequency / 2 <= unsafeFrequencyHigherBound) {
                 if (isTimingForWarningOn) {
                     if (getTicks() - prevTimingForWarningOn >= timeWindow) {
@@ -609,6 +599,7 @@ void all_init() {
     resetBtn_init();
     calibratedBtn_init();
 
+    //general peripherals init
     pca9532_init();
     led7seg_init();
     acc_init();
@@ -630,7 +621,7 @@ void all_init() {
     GPIO_ClearValue(2, 1<<13); //LM4811-shutdn
 
     oled_clearScreen(OLED_COLOR_BLACK);
-
+    //temperature sensor init
     temp_init(&getTicks);
     SysTick_Config(SystemCoreClock / TicksInOneSecond);
 
@@ -663,7 +654,7 @@ void all_init() {
     LPC_GPIOINT->IO0IntEnF |= 1 << 4;
     NVIC_EnableIRQ(EINT3_IRQn);
     UART_Receive_Int_Init();
-    // TODO: set up interrupt priority
+    // set up interrupt priority
     NVIC_SetPriority(EINT3_IRQn, (1 << __NVIC_PRIO_BITS));  // 1 << 5 = 16, first priority for external interrupt
     NVIC_SetPriority(UART3_IRQn, (1 << __NVIC_PRIO_BITS) + 1);
     NVIC_SetPriority(TIMER0_IRQn, (1 << __NVIC_PRIO_BITS) + 2);
