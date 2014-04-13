@@ -39,7 +39,7 @@ typedef enum {
 
 static const int TicksInOneSecond = 1000;
 static const int SensorOperatingTimeInterval = 20;
-static const int TemperatureThreshold = 26;
+static const int TemperatureThreshold = 32;
 static const int LuminanceThreshold = 800;
 static const int UnsafeFrequencyLowestBound = 0;
 static const int UnsafeFrequencyHighestBound = 25;
@@ -540,7 +540,7 @@ void doActiveMode() {
                 oled_putString(0, 50, (uint8_t *)freqString, OLED_COLOR_WHITE, OLED_COLOR_BLACK);
             } else if (joystickStatus == JOYSTICK_RIGHT && unsafeFrequencyHigherBound > unsafeFrequencyLowerBound + 1) {
                 unsafeFrequencyLowerBound++;
-                sprintf(freqString, "Low: %d; Upp: %d", unsafeFrequencyLowerBound, unsafeFrequencyHigherBound);
+                sprintf(freqString, "Low: %d;Upp: %d ", unsafeFrequencyLowerBound, unsafeFrequencyHigherBound);
                 oled_putString(0, 50, (uint8_t *)freqString, OLED_COLOR_WHITE, OLED_COLOR_BLACK);
             }
 
