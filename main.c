@@ -41,7 +41,7 @@ typedef enum {
 
 static const int TicksInOneSecond = 1000;
 static const int SensorOperatingTimeInterval = 20;
-static const int TemperatureThreshold = 32;
+static const int TemperatureThreshold = 26;
 static const int LuminanceThreshold = 800;
 static const int UnsafeFrequencyLowestBound = 0;
 static const int UnsafeFrequencyHighestBound = 25;
@@ -135,7 +135,7 @@ void resetBtn_init(void) {
     GPIO_SetDir(0, (1<<4), 0);
 }
 
-//SW4 Calibration Button will move FFS to StandBy mode, 
+//SW4 Calibration Button will move FFS to StandBy mode,
 //if current mode is Calibration mode
 void calibratedBtn_init(void) {
     PINSEL_CFG_Type PinCfg;
@@ -493,7 +493,7 @@ void doActiveMode() {
     } else {
         oled_putString(0, 20, (uint8_t *)"NORMAL", OLED_COLOR_WHITE, OLED_COLOR_BLACK);
     }
-    sprintf(freqString, "Low: %d; Upp: %d", unsafeFrequencyLowerBound, unsafeFrequencyHigherBound);
+    sprintf(freqString, "Low: %d;Upp: %d ", unsafeFrequencyLowerBound, unsafeFrequencyHigherBound);
     oled_putString(0, 50, (uint8_t *)freqString, OLED_COLOR_WHITE, OLED_COLOR_BLACK);
     while (currentMode == Active) {
         if (getTicks() - prevCountingTicks >= SensorOperatingTimeInterval) {
@@ -516,15 +516,15 @@ void doActiveMode() {
                 // nothing
             } else if (joystickStatus == JOYSTICK_UP && unsafeFrequencyHigherBound < UnsafeFrequencyHighestBound) {
                 unsafeFrequencyHigherBound++;
-                sprintf(freqString, "Low: %d; Upp: %d", unsafeFrequencyLowerBound, unsafeFrequencyHigherBound);
+                sprintf(freqString, "Low: %d;Upp: %d ", unsafeFrequencyLowerBound, unsafeFrequencyHigherBound);
                 oled_putString(0, 50, (uint8_t *)freqString, OLED_COLOR_WHITE, OLED_COLOR_BLACK);
             } else if (joystickStatus == JOYSTICK_DOWN && unsafeFrequencyHigherBound > unsafeFrequencyLowerBound + 1) {
                 unsafeFrequencyHigherBound--;
-                sprintf(freqString, "Low: %d; Upp: %d", unsafeFrequencyLowerBound, unsafeFrequencyHigherBound);
+                sprintf(freqString, "Low: %d;Upp: %d ", unsafeFrequencyLowerBound, unsafeFrequencyHigherBound);
                 oled_putString(0, 50, (uint8_t *)freqString, OLED_COLOR_WHITE, OLED_COLOR_BLACK);
             } else if (joystickStatus == JOYSTICK_LEFT && unsafeFrequencyLowerBound > UnsafeFrequencyLowestBound) {
                 unsafeFrequencyLowerBound--;
-                sprintf(freqString, "Low: %d; Upp: %d", unsafeFrequencyLowerBound, unsafeFrequencyHigherBound);
+                sprintf(freqString, "Low: %d;Upp: %d ", unsafeFrequencyLowerBound, unsafeFrequencyHigherBound);
                 oled_putString(0, 50, (uint8_t *)freqString, OLED_COLOR_WHITE, OLED_COLOR_BLACK);
             } else if (joystickStatus == JOYSTICK_RIGHT && unsafeFrequencyHigherBound > unsafeFrequencyLowerBound + 1) {
                 unsafeFrequencyLowerBound++;
