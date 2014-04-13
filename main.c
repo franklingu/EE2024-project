@@ -655,9 +655,10 @@ void all_init() {
     NVIC_EnableIRQ(EINT3_IRQn);
     UART_Receive_Int_Init();
     // set up interrupt priority
-    NVIC_SetPriority(EINT3_IRQn, (1 << __NVIC_PRIO_BITS));  // 1 << 5 = 16, first priority for external interrupt
-    NVIC_SetPriority(UART3_IRQn, (1 << __NVIC_PRIO_BITS) + 1);
-    NVIC_SetPriority(TIMER0_IRQn, (1 << __NVIC_PRIO_BITS) + 2);
+    NVIC_SetPriorityGrouping(5);
+    NVIC_SetPriority(EINT3_IRQn, (1 << (__NVIC_PRIO_BITS - 1)));  // 10|000|000, first priority for external interrupt
+    NVIC_SetPriority(UART3_IRQn, (1 << (__NVIC_PRIO_BITS - 1)) + 1);// 10|001|000
+    NVIC_SetPriority(TIMER0_IRQn, (1 << (__NVIC_PRIO_BITS - 1)) + 2);// 10|010|000
 }
 
 void EINT3_IRQHandler(void){
